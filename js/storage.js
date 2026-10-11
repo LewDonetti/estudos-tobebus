@@ -30,7 +30,7 @@
   }
 
   function emptyDB() {
-    return { version: 1, subjects: [], sessions: [], recalls: [] };
+    return { version: 1, subjects: [], sessions: [], recalls: [], quizzes: [] };
   }
 
   // ----- Leitura / escrita bruta -----------------------------------------
@@ -44,6 +44,7 @@
       if (!data.subjects) data.subjects = [];
       if (!data.sessions) data.sessions = [];
       if (!data.recalls) data.recalls = [];
+      if (!data.quizzes) data.quizzes = [];
       return data;
     } catch (e) {
       console.warn('Não consegui ler os dados salvos, começando limpo.', e);
@@ -230,6 +231,34 @@
       return recall;
     },
 
+    // --- Resultados de questionários ---
+    getQuizzes: function (subjectId) {
+      var quizzes = load().quizzes.filter(function (x) {
+        return x.subjectId === subjectId;
+      });
+      quizzes.sort(function (a, b) {
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
+      return quizzes;
+    },
+
+    addQuiz: function (data) {
+      var db = load();
+      var quiz = {
+        id: uid(),
+        subjectId: data.subjectId,
+        sessionId: data.sessionId || null,
+        scope: data.scope || 'modulo', // 'modulo' ou 'materia'
+        score: data.score || 0,
+        total: data.total || 0,
+        correct: data.correct || 0,
+        createdAt: now()
+      };
+      db.quizzes.push(quiz);
+      save(db);
+      return quiz;
+    },
+
     // --- Backup (para nunca perder nada de verdade) ---
     exportJSON: function () {
       return JSON.stringify(load(), null, 2);
@@ -241,6 +270,7 @@
         throw new Error('Arquivo de backup inválido.');
       }
       if (!data.recalls) data.recalls = [];
+      if (!data.quizzes) data.quizzes = [];
       if (!data.version) data.version = 1;
       save(data);
       return data;

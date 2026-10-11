@@ -23,6 +23,9 @@
   // estado de navegação simples
   var state = { view: 'home', subjectId: null, sessionId: null };
 
+  // contexto do questionário atual
+  var quizCtx = null;
+
   // ----- helpers ----------------------------------------------------------
 
   function el(html) {
@@ -87,6 +90,7 @@
     if (state.view === 'subject') return renderSubject();
     if (state.view === 'recall') return renderRecall();
     if (state.view === 'notebook') return renderNotebook();
+    if (state.view === 'quiz') return renderQuiz();
   }
 
   // ===== HOME: grade de matérias ==========================================
@@ -200,6 +204,26 @@
     });
     actions.appendChild(startBtn);
     actions.appendChild(newBtn);
+
+    // questionário da matéria inteira (junta todos os cadernos)
+    var allContent = sessions
+      .map(function (x) {
+        return x.content;
+      })
+      .join('\n');
+    if (allContent.replace(/\s/g, '').length > 40) {
+      var quizAllBtn = el('<button class="btn">🎯 Questionário da matéria</button>');
+      quizAllBtn.addEventListener('click', function () {
+        startQuiz({
+          subjectId: s.id,
+          content: allContent,
+          scope: 'materia',
+          label: 'Questionário de ' + s.name
+        });
+      });
+      actions.appendChild(quizAllBtn);
+    }
+
     root.appendChild(actions);
 
     // timeline
@@ -231,11 +255,28 @@
                 ' · ' + preview(sess.content) + '</div>' +
             '</div>' +
           '</div>' +
-          '<div style="color:var(--ink-soft)">›</div>' +
+          '<div style="display:flex;align-items:center;gap:10px">' +
+            '<button class="btn ghost small quiz-one" title="Questionário deste caderno">🎯</button>' +
+            '<span style="color:var(--ink-soft)">›</span>' +
+          '</div>' +
         '</div>'
       );
       item.addEventListener('click', function () {
         go('notebook', s.id, sess.id);
+      });
+      item.querySelector('.quiz-one').addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (sess.content.replace(/\s/g, '').length <= 40) {
+          toast('Esse caderno está curtinho pra um questionário 💛');
+          return;
+        }
+        startQuiz({
+          subjectId: s.id,
+          sessionId: sess.id,
+          content: sess.content,
+          scope: 'modulo',
+          label: 'Questionário — ' + sess.title
+        });
       });
       timeline.appendChild(item);
     });
@@ -495,6 +536,19 @@
         Store.updateSession(session.id, payload);
       }
       toast('Caderno guardado com carinho! 💾💛');
+
+      // terminou o módulo → oferece o questionário
+      if (content.replace(/\s/g, '').length > 40) {
+        offerQuizModal(function () {
+          startQuiz({
+            subjectId: s.id,
+            sessionId: session.id,
+            content: content,
+            scope: 'modulo',
+            label: 'Questionário — ' + title
+          });
+        });
+      }
     });
 
     left.appendChild(saveBtn);
@@ -577,6 +631,292 @@
 
     node.addEventListener('mousedown', onDown);
     node.addEventListener('touchstart', onDown, { passive: false });
+  }
+
+  // ===== QUESTIONÁRIO =====================================================
+
+  function offerQuizModal(onYes) {
+    var overlay = el('<div class="modal-overlay"></div>');
+    var modal = el(
+      '<div class="modal" style="text-align:center">' +
+        '<div style="font-size:2.6rem">🎯</div>' +
+        '<h3>Módulo concluído!</h3>' +
+        '<p style="color:var(--ink-soft);margin-bottom:8px">Que tal um ' +
+          'questionário rapidinho pra fixar o que você acabou de estudar? ' +
+          'As perguntas são feitas do seu próprio caderno. 💛</p>' +
+        '<div class="modal-actions" style="justify-content:center">' +
+          '<button class="btn ghost" id="later">Agora não</button>' +
+          '<button class="btn mint" id="now">Bora! 🎯</button>' +
+        '</div>' +
+      '</div>'
+    );
+    overlay.appendChild(modal);
+    function close() {
+      overlay.remove();
+    }
+    modal.querySelector('#later').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) close();
+    });
+    modal.querySelector('#now').addEventListener('click', function () {
+      close();
+      onYes();
+    });
+    document.body.appendChild(overlay);
+  }
+
+  function startQuiz(ctx) {
+    quizCtx = ctx;
+    go('quiz', ctx.subjectId);
+  }
+
+  function renderQuiz() {
+    var ctx = quizCtx;
+    if (!ctx) return go('home');
+    var s = Store.getSubject(ctx.subjectId);
+
+    var back = el('<div class="back-link">← Voltar</div>');
+    back.addEventListener('click', function () {
+      go('subject', ctx.subjectId);
+    });
+    root.appendChild(back);
+
+    var questions = Quiz.generate(ctx.content, { max: 6 });
+
+    if (!questions.length) {
+      root.appendChild(
+        el(
+          '<div class="quiz-screen" style="text-align:center">' +
+            '<div style="font-size:3rem">📝</div>' +
+            '<h2>Ainda não dá pra montar o questionário</h2>' +
+            '<p style="color:var(--ink-soft);margin-top:8px">Escreva um ' +
+              'pouquinho mais no caderno (frases completas) que eu monto ' +
+              'as perguntas pra você. 💛</p>' +
+          '</div>'
+        )
+      );
+      return;
+    }
+
+    var screen = el('<div class="quiz-screen"></div>');
+    root.appendChild(screen);
+
+    var idx = 0;
+    var correctCount = 0;
+    var review = [];
+
+    function renderQuestion() {
+      var q = questions[idx];
+      var pct = Math.round((idx / questions.length) * 100);
+      screen.innerHTML = '';
+
+      screen.appendChild(
+        el(
+          '<div class="quiz-progress">' +
+            '<span>' + esc(ctx.label || 'Questionário') + '</span>' +
+            '<span>Pergunta ' + (idx + 1) + ' de ' + questions.length + '</span>' +
+          '</div>'
+        )
+      );
+      screen.appendChild(
+        el(
+          '<div class="progress-track"><div class="progress-fill" ' +
+            'style="width:' + pct + '%"></div></div>'
+        )
+      );
+
+      if (q.type === 'cloze') {
+        screen.appendChild(
+          el('<span class="q-type-badge cloze">✏️ Complete a frase</span>')
+        );
+        screen.appendChild(el('<div class="q-text">' + esc(q.text) + '</div>'));
+        var input = el(
+          '<input class="q-input" type="text" placeholder="Digite a palavra que falta..." />'
+        );
+        screen.appendChild(input);
+
+        var actions = el('<div class="q-actions"></div>');
+        var answerBtn = el('<button class="btn">Responder</button>');
+        actions.appendChild(answerBtn);
+        screen.appendChild(actions);
+
+        function submit() {
+          var val = input.value.trim();
+          if (!val) {
+            toast('Escreve sua resposta 😊');
+            return;
+          }
+          var r = Quiz.grade(q, val);
+          if (r.correct) correctCount++;
+          review.push({ q: q, user: val, correct: r.correct });
+          input.disabled = true;
+          answerBtn.remove();
+
+          var fb = el(
+            '<div class="answer-feedback ' + (r.correct ? 'ok' : 'bad') + '">' +
+              '<h4>' + (r.correct ? '✅ Isso! Você acertou!' :
+                '📌 Quase! A resposta era:') + '</h4>' +
+              (r.correct ? '' :
+                '<div class="reveal-note">' + esc(r.expected) + '</div>') +
+            '</div>'
+          );
+          screen.appendChild(fb);
+          screen.appendChild(nextButton());
+        }
+        answerBtn.addEventListener('click', submit);
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') submit();
+        });
+        setTimeout(function () {
+          input.focus();
+        }, 50);
+      } else {
+        // pergunta aberta — autoavaliação
+        screen.appendChild(
+          el('<span class="q-type-badge open">💭 Explique o conceito</span>')
+        );
+        screen.appendChild(
+          el(
+            '<div class="q-text">Explique com suas palavras: ' +
+              '<span class="concept">' + esc(q.text) + '</span></div>'
+          )
+        );
+        var ta = el(
+          '<textarea class="q-input" placeholder="Escreva o que você lembra sobre isso..."></textarea>'
+        );
+        screen.appendChild(ta);
+
+        var actions2 = el('<div class="q-actions"></div>');
+        var revealBtn = el('<button class="btn lilac">Ver o que anotei</button>');
+        actions2.appendChild(revealBtn);
+        screen.appendChild(actions2);
+
+        revealBtn.addEventListener('click', function () {
+          ta.disabled = true;
+          revealBtn.remove();
+          var r = Quiz.grade(q, ta.value);
+          var box = el(
+            '<div class="answer-feedback reveal">' +
+              '<h4>📖 No seu caderno você escreveu:</h4>' +
+              '<div class="reveal-note">' + esc(r.expected) + '</div>' +
+              '<p style="margin-top:12px;color:var(--ink-soft);font-size:.88rem">' +
+                'Você conseguiu lembrar bem?</p>' +
+              '<div class="self-assess">' +
+                '<button class="btn mint small" id="gotIt">✅ Eu lembrei</button>' +
+                '<button class="btn ghost small" id="reviewIt">📌 Preciso revisar</button>' +
+              '</div>' +
+            '</div>'
+          );
+          screen.appendChild(box);
+          box.querySelector('#gotIt').addEventListener('click', function () {
+            correctCount++;
+            review.push({ q: q, user: ta.value, correct: true });
+            nextStep();
+          });
+          box.querySelector('#reviewIt').addEventListener('click', function () {
+            review.push({ q: q, user: ta.value, correct: false });
+            nextStep();
+          });
+        });
+        setTimeout(function () {
+          ta.focus();
+        }, 50);
+      }
+    }
+
+    function nextButton() {
+      var wrap = el('<div class="q-actions"></div>');
+      var btn = el(
+        '<button class="btn">' +
+          (idx + 1 < questions.length ? 'Próxima →' : 'Ver resultado 🎉') +
+          '</button>'
+      );
+      btn.addEventListener('click', nextStep);
+      wrap.appendChild(btn);
+      return wrap;
+    }
+
+    function nextStep() {
+      idx++;
+      if (idx < questions.length) {
+        renderQuestion();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        renderResult();
+      }
+    }
+
+    function renderResult() {
+      var score = Math.round((correctCount / questions.length) * 100);
+      var fb = Recall.feedback(score);
+      Store.addQuiz({
+        subjectId: ctx.subjectId,
+        sessionId: ctx.sessionId,
+        scope: ctx.scope,
+        score: score,
+        total: questions.length,
+        correct: correctCount
+      });
+
+      var ringColor =
+        score >= 85 ? '#70d6a3' :
+        score >= 65 ? '#7eb6ff' :
+        score >= 40 ? '#ffb570' : '#ff7eb6';
+
+      screen.innerHTML = '';
+      screen.appendChild(
+        el(
+          '<div style="text-align:center">' +
+            '<div class="score-ring" style="background:linear-gradient(135deg,' +
+              ringColor + ',' + shade(ringColor, -18) + ')">' +
+              '<div class="num">' + score + '%</div>' +
+              '<div class="lbl">' + correctCount + ' de ' + questions.length + '</div>' +
+            '</div>' +
+            '<div class="feedback-box">' +
+              '<div style="font-size:2rem">' + fb.emoji + '</div>' +
+              '<h3>' + fb.title + '</h3>' +
+              '<p>' + fb.message + '</p>' +
+            '</div>' +
+          '</div>'
+        )
+      );
+
+      var rev = el('<div class="quiz-review"><h4 style="margin-bottom:6px">📋 Revisão das respostas</h4></div>');
+      review.forEach(function (r) {
+        var qtext = r.q.type === 'cloze'
+          ? r.q.text.replace('__________', '[' + r.q.answer + ']')
+          : 'Explicar: ' + r.q.text;
+        rev.appendChild(
+          el(
+            '<div class="review-item">' +
+              '<span class="rev-icon">' + (r.correct ? '✅' : '📌') + '</span>' +
+              '<div>' +
+                '<div>' + esc(qtext) + '</div>' +
+                '<div class="rev-ans">Sua resposta: ' +
+                  (r.user ? esc(r.user) : '—') + '</div>' +
+              '</div>' +
+            '</div>'
+          )
+        );
+      });
+      screen.appendChild(rev);
+
+      var actions = el('<div class="q-actions" style="justify-content:center;margin-top:20px"></div>');
+      var again = el('<button class="btn ghost">🔁 Refazer</button>');
+      again.addEventListener('click', function () {
+        go('quiz', ctx.subjectId); // regenera (perguntas embaralhadas)
+      });
+      var done = el('<button class="btn">Voltar para a matéria</button>');
+      done.addEventListener('click', function () {
+        go('subject', ctx.subjectId);
+      });
+      actions.appendChild(again);
+      actions.appendChild(done);
+      screen.appendChild(actions);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    renderQuestion();
   }
 
   // ===== MODAIS ===========================================================
