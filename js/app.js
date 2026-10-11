@@ -682,29 +682,50 @@
     });
     root.appendChild(back);
 
-    var questions = Quiz.generate(ctx.content, { max: 7 });
-
-    if (!questions.length) {
-      root.appendChild(
-        el(
-          '<div class="quiz-screen" style="text-align:center">' +
-            '<div style="font-size:3rem">📝</div>' +
-            '<h2>Ainda não dá pra montar o questionário</h2>' +
-            '<p style="color:var(--ink-soft);margin-top:8px">Escreva um ' +
-              'pouquinho mais no caderno (frases completas) que eu monto ' +
-              'as perguntas pra você. 💛</p>' +
-          '</div>'
-        )
-      );
-      return;
-    }
-
     var screen = el('<div class="quiz-screen"></div>');
     root.appendChild(screen);
 
-    var idx = 0;
-    var scoreSum = 0; // soma de créditos (0 a 1 por questão)
-    var review = [];
+    var questions, idx, scoreSum, review;
+
+    // tela de carregamento (a geração pela IA é assíncrona)
+    var usingAI = AI.isReady();
+    screen.innerHTML =
+      '<div style="text-align:center;padding:26px">' +
+        '<div class="spinner"></div>' +
+        '<h2 style="margin-top:14px">' +
+          (usingAI ? '🤖 Gerando seu simulado com IA...' : 'Montando seu questionário...') +
+        '</h2>' +
+        '<p style="color:var(--ink-soft);margin-top:6px">' +
+          (usingAI
+            ? 'A Claude está criando questões de banca a partir do seu material. Um instante 💛'
+            : 'Só um instante 💛') +
+        '</p>' +
+      '</div>';
+
+    var build = usingAI
+      ? AI.generateQuiz(ctx.content, { mc: 5, diss: 2 }).catch(function (err) {
+          toast('IA indisponível (' + (err.message || 'erro') + '). Usando modo offline.');
+          return Quiz.generate(ctx.content, { max: 7 });
+        })
+      : Promise.resolve(Quiz.generate(ctx.content, { max: 7 }));
+
+    build.then(function (qs) {
+      questions = qs || [];
+      if (!questions.length) {
+        screen.innerHTML =
+          '<div style="text-align:center">' +
+            '<div style="font-size:3rem">📝</div>' +
+            '<h2>Ainda não dá pra montar o questionário</h2>' +
+            '<p style="color:var(--ink-soft);margin-top:8px">Escreva um ' +
+              'pouquinho mais de conteúdo que eu monto as perguntas pra você. 💛</p>' +
+          '</div>';
+        return;
+      }
+      idx = 0;
+      scoreSum = 0;
+      review = [];
+      renderQuestion();
+    });
 
     function renderShell() {
       var q = questions[idx];
@@ -736,12 +757,14 @@
     // ----- Múltipla escolha -----
     function renderMC(q) {
       screen.appendChild(
-        el('<span class="q-type-badge mc">📝 Múltipla escolha</span>')
+        el('<span class="q-type-badge mc">📝 Múltipla escolha' +
+          (q.ai ? ' <span class="ai-chip">IA</span>' : '') + '</span>')
       );
       screen.appendChild(
         el(
           '<div class="q-text">' + esc(q.stem) +
-            '<span class="concept">' + esc(q.concept) + '</span>:</div>'
+            (q.concept ? ' <span class="concept">' + esc(q.concept) + '</span>:' : '') +
+          '</div>'
         )
       );
 
@@ -772,7 +795,7 @@
 
           review.push({
             type: 'mc',
-            concept: q.concept,
+            concept: q.concept || q.stem,
             correct: r.correct,
             credit: credit,
             chosenText: q.options[i],
@@ -786,6 +809,10 @@
                 ? '✅ Correta! Mandou bem!'
                 : '❌ Não foi dessa vez. A correta é a letra ' +
                   String.fromCharCode(65 + q.correctIndex) + '.') + '</h4>' +
+              (q.explanation
+                ? '<div style="margin-top:6px;font-size:.92rem;line-height:1.4">' +
+                    esc(q.explanation) + '</div>'
+                : '') +
             '</div>'
           );
           screen.appendChild(fb);
@@ -799,13 +826,16 @@
 
     // ----- Dissertativa -----
     function renderDissertativa(q) {
+      var withAI = q.ai && AI.isReady();
       screen.appendChild(
-        el('<span class="q-type-badge diss">✍️ Questão dissertativa</span>')
+        el('<span class="q-type-badge diss">✍️ Questão dissertativa' +
+          (q.ai ? ' <span class="ai-chip">IA</span>' : '') + '</span>')
       );
       screen.appendChild(
         el(
           '<div class="q-text">' + esc(q.stem) +
-            '<span class="concept">' + esc(q.concept) + '</span>:</div>'
+            (q.concept ? ' <span class="concept">' + esc(q.concept) + '</span>:' : '') +
+          '</div>'
         )
       );
       var ta = el(
@@ -815,7 +845,9 @@
       screen.appendChild(ta);
 
       var actions = el('<div class="q-actions"></div>');
-      var sendBtn = el('<button class="btn lilac">Responder e ver gabarito</button>');
+      var sendBtn = el('<button class="btn lilac">' +
+        (withAI ? 'Responder e corrigir com IA' : 'Responder e ver gabarito') +
+        '</button>');
       actions.appendChild(sendBtn);
       screen.appendChild(actions);
 
@@ -825,45 +857,103 @@
           return;
         }
         ta.disabled = true;
-        sendBtn.remove();
-        var r = Quiz.grade(q, ta.value);
 
-        var box = el(
-          '<div class="answer-feedback reveal" style="margin-top:16px">' +
-            '<h4>📖 Resposta esperada (do seu material):</h4>' +
-            '<div class="reveal-note">' + esc(r.reveal) + '</div>' +
-            '<p style="margin-top:12px;color:var(--ink-soft);font-size:.86rem">' +
-              'Você mencionou cerca de <strong>' + r.hit + ' de ' + r.total +
-              '</strong> ideias-chave. Como você avalia sua resposta?</p>' +
-            '<div class="self-assess">' +
-              '<button class="btn mint small" data-c="1">✅ Respondi bem</button>' +
-              '<button class="btn ghost small" data-c="0.5">🟡 Parcialmente</button>' +
-              '<button class="btn ghost small" data-c="0">📌 Preciso revisar</button>' +
-            '</div>' +
-          '</div>'
-        );
-        screen.appendChild(box);
-        box.querySelectorAll('.self-assess button').forEach(function (b) {
-          b.addEventListener('click', function () {
-            var credit = parseFloat(b.getAttribute('data-c'));
-            scoreSum += credit;
-            review.push({
-              type: 'dissertativa',
-              concept: q.concept,
-              credit: credit,
-              user: ta.value,
-              selfLabel:
-                credit === 1 ? 'Respondi bem' :
-                credit === 0.5 ? 'Parcialmente' : 'Preciso revisar'
+        if (withAI) {
+          sendBtn.textContent = '🤖 Corrigindo...';
+          sendBtn.disabled = true;
+          AI.gradeDissertativa(q, ta.value)
+            .then(function (g) {
+              sendBtn.remove();
+              showAIGrade(q, ta.value, g);
+            })
+            .catch(function (err) {
+              // se a correção por IA falhar, cai na autoavaliação
+              toast('IA indisponível (' + (err.message || 'erro') + '). Autoavaliação.');
+              sendBtn.remove();
+              showSelfAssess(q, ta.value);
             });
-            nextStep();
-          });
-        });
-        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+          return;
+        }
+
+        sendBtn.remove();
+        showSelfAssess(q, ta.value);
       });
       setTimeout(function () {
         ta.focus();
       }, 50);
+    }
+
+    // correção automática pela IA (nota + comentário)
+    function showAIGrade(q, answer, g) {
+      var credit = g.score >= 75 ? 1 : g.score >= 40 ? 0.5 : 0;
+      scoreSum += credit;
+      var cls = g.score >= 75 ? 'ok' : g.score >= 40 ? 'reveal' : 'bad';
+      review.push({
+        type: 'dissertativa',
+        concept: q.concept || q.stem,
+        credit: credit,
+        user: answer,
+        selfLabel: g.score + '/100 (IA)'
+      });
+
+      var missing = (g.missing || []).length
+        ? '<p style="margin-top:10px;font-size:.86rem"><strong>Pode melhorar:</strong> ' +
+            g.missing.map(esc).join('; ') + '</p>'
+        : '';
+      var box = el(
+        '<div class="answer-feedback ' + cls + '" style="margin-top:16px">' +
+          '<h4>🤖 Correção da IA — nota ' + g.score + '/100</h4>' +
+          '<p style="margin-top:4px">' + esc(g.feedback || '') + '</p>' +
+          missing +
+          (q.reveal
+            ? '<details style="margin-top:10px"><summary style="cursor:pointer;color:var(--ink-soft)">Ver resposta-modelo</summary>' +
+              '<div class="reveal-note" style="margin-top:6px">' + esc(q.reveal) + '</div></details>'
+            : '') +
+        '</div>'
+      );
+      screen.appendChild(box);
+      screen.appendChild(nextButton());
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+
+    // modo offline: revela o gabarito e a pessoa se autoavalia
+    function showSelfAssess(q, answer) {
+      var r = Quiz.grade(q, answer);
+      var extra = (typeof r.hit === 'number')
+        ? 'Você mencionou cerca de <strong>' + r.hit + ' de ' + r.total +
+          '</strong> ideias-chave. '
+        : '';
+      var box = el(
+        '<div class="answer-feedback reveal" style="margin-top:16px">' +
+          '<h4>📖 Resposta esperada (do seu material):</h4>' +
+          '<div class="reveal-note">' + esc(r.reveal || q.reveal || '') + '</div>' +
+          '<p style="margin-top:12px;color:var(--ink-soft);font-size:.86rem">' +
+            extra + 'Como você avalia sua resposta?</p>' +
+          '<div class="self-assess">' +
+            '<button class="btn mint small" data-c="1">✅ Respondi bem</button>' +
+            '<button class="btn ghost small" data-c="0.5">🟡 Parcialmente</button>' +
+            '<button class="btn ghost small" data-c="0">📌 Preciso revisar</button>' +
+          '</div>' +
+        '</div>'
+      );
+      screen.appendChild(box);
+      box.querySelectorAll('.self-assess button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var credit = parseFloat(b.getAttribute('data-c'));
+          scoreSum += credit;
+          review.push({
+            type: 'dissertativa',
+            concept: q.concept || q.stem,
+            credit: credit,
+            user: answer,
+            selfLabel:
+              credit === 1 ? 'Respondi bem' :
+              credit === 0.5 ? 'Parcialmente' : 'Preciso revisar'
+          });
+          nextStep();
+        });
+      });
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }
 
     function nextButton() {
@@ -979,8 +1069,6 @@
       screen.appendChild(actions);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-
-    renderQuestion();
   }
 
   // ===== IMPORTAÇÃO DE MATÉRIAS ==========================================
@@ -1322,6 +1410,166 @@
     document.body.appendChild(overlay);
   }
 
+  // ===== CONFIGURAÇÃO DA IA ===============================================
+
+  function openAIModal() {
+    var cfg = AI.getConfig();
+
+    var modelOpts = AI.MODELS.map(function (m) {
+      return '<option value="' + m.id + '"' +
+        (m.id === cfg.model ? ' selected' : '') + '>' + esc(m.label) + '</option>';
+    }).join('');
+
+    var overlay = el('<div class="modal-overlay"></div>');
+    var modal = el(
+      '<div class="modal" style="max-width:480px">' +
+        '<h3>🤖 Inteligência Artificial</h3>' +
+        '<p style="color:var(--ink-soft);font-size:.86rem;margin-bottom:16px">' +
+          'Com a IA ligada, o questionário é gerado pela Claude (questões de ' +
+          'banca de verdade) e as dissertativas são corrigidas com nota e ' +
+          'comentário. Sem ligar, o app usa o gerador offline normalmente.</p>' +
+
+        '<div class="field">' +
+          '<label>Modo</label>' +
+          '<div class="ai-toggle">' +
+            '<button class="ai-opt" data-mode="offline">Offline (sem IA)</button>' +
+            '<button class="ai-opt" data-mode="ia">IA (Claude)</button>' +
+          '</div>' +
+        '</div>' +
+
+        '<div id="aiFields">' +
+          '<div class="field">' +
+            '<label>Como conectar</label>' +
+            '<div class="ai-toggle">' +
+              '<button class="ai-opt" data-ep="direct">Chave direto</button>' +
+              '<button class="ai-opt" data-ep="proxy">Servidor (proxy)</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="field" id="keyField">' +
+            '<label>Chave da API (Anthropic)</label>' +
+            '<input type="password" id="aiKey" placeholder="sk-ant-..." value="' +
+              esc(cfg.apiKey) + '" />' +
+            '<div class="field-hint">A chave fica salva só neste navegador. ' +
+              'Pegue em console.anthropic.com → API Keys.</div>' +
+          '</div>' +
+          '<div class="field" id="proxyField">' +
+            '<label>URL do seu servidor/proxy</label>' +
+            '<input type="text" id="aiProxy" placeholder="https://seu-proxy..." value="' +
+              esc(cfg.proxyUrl) + '" />' +
+            '<div class="field-hint">Recomendado se o site for público: o ' +
+              'servidor guarda a chave em segredo.</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label>Modelo</label>' +
+            '<select id="aiModel" class="q-input">' + modelOpts + '</select>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="modal-actions">' +
+          '<button class="btn ghost" id="aiCancel">Cancelar</button>' +
+          '<button class="btn ghost" id="aiTest">Testar</button>' +
+          '<button class="btn mint" id="aiSave">Salvar</button>' +
+        '</div>' +
+      '</div>'
+    );
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    var selMode = cfg.mode;
+    var selEp = cfg.endpoint;
+
+    function refresh() {
+      modal.querySelectorAll('.ai-opt[data-mode]').forEach(function (b) {
+        b.classList.toggle('on', b.getAttribute('data-mode') === selMode);
+      });
+      modal.querySelectorAll('.ai-opt[data-ep]').forEach(function (b) {
+        b.classList.toggle('on', b.getAttribute('data-ep') === selEp);
+      });
+      modal.querySelector('#aiFields').style.display =
+        selMode === 'ia' ? '' : 'none';
+      modal.querySelector('#keyField').style.display =
+        selEp === 'direct' ? '' : 'none';
+      modal.querySelector('#proxyField').style.display =
+        selEp === 'proxy' ? '' : 'none';
+    }
+    modal.querySelectorAll('.ai-opt[data-mode]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        selMode = b.getAttribute('data-mode');
+        refresh();
+      });
+    });
+    modal.querySelectorAll('.ai-opt[data-ep]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        selEp = b.getAttribute('data-ep');
+        refresh();
+      });
+    });
+    refresh();
+
+    function collect() {
+      return {
+        mode: selMode,
+        endpoint: selEp,
+        apiKey: modal.querySelector('#aiKey').value.trim(),
+        proxyUrl: modal.querySelector('#aiProxy').value.trim(),
+        model: modal.querySelector('#aiModel').value
+      };
+    }
+
+    function close() {
+      overlay.remove();
+    }
+    modal.querySelector('#aiCancel').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) close();
+    });
+
+    modal.querySelector('#aiSave').addEventListener('click', function () {
+      AI.setConfig(collect());
+      updateAIBadge();
+      toast(selMode === 'ia' ? 'IA ativada! 🤖✨' : 'IA desligada (modo offline).');
+      close();
+    });
+
+    modal.querySelector('#aiTest').addEventListener('click', function () {
+      AI.setConfig(collect());
+      if (!AI.isReady()) {
+        toast('Configure o modo IA e a chave/URL primeiro 😊');
+        return;
+      }
+      var tb = modal.querySelector('#aiTest');
+      tb.textContent = 'Testando...';
+      tb.disabled = true;
+      AI._callClaude({
+        user: 'Responda apenas: OK',
+        maxTokens: 20,
+        effort: 'low'
+      })
+        .then(function () {
+          toast('Conexão com a IA funcionando! ✅');
+        })
+        .catch(function (err) {
+          toast('Falhou: ' + (err.message || 'erro') + ' 😕');
+        })
+        .then(function () {
+          tb.textContent = 'Testar';
+          tb.disabled = false;
+        });
+    });
+  }
+
+  function updateAIBadge() {
+    var btn = document.getElementById('aiBtn');
+    if (!btn) return;
+    if (AI.isReady()) {
+      btn.classList.remove('ghost');
+      btn.textContent = '🤖 IA ativa';
+    } else {
+      btn.classList.add('ghost');
+      btn.textContent = '🤖 IA';
+    }
+  }
+
   // ===== BACKUP (exportar / importar) =====================================
 
   function exportBackup() {
@@ -1394,6 +1642,8 @@
   document.getElementById('importContentBtn').addEventListener('click', function () {
     go('import');
   });
+  document.getElementById('aiBtn').addEventListener('click', openAIModal);
+  updateAIBadge();
 
   // start
   render();
