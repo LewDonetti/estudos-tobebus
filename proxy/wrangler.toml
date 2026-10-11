@@ -1,0 +1,14 @@
+# Configuração do Cloudflare Worker (proxy da IA)
+# Publique com:  npx wrangler deploy
+name = "caderno-ia-proxy"
+main = "cloudflare-worker.js"
+compatibility_date = "2024-11-01"
+
+# Origem(ns) do site que podem usar o proxy (separadas por vírgula).
+# Troque pelo endereço real do site. Use "*" só para testar.
+[vars]
+ALLOWED_ORIGIN = "https://SEU-USUARIO.github.io"
+
+# NÃO coloque a chave aqui. Defina como "secret" (fica criptografada):
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put ACCESS_TOKEN      (opcional)

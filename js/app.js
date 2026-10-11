@@ -1454,10 +1454,16 @@
           '</div>' +
           '<div class="field" id="proxyField">' +
             '<label>URL do seu servidor/proxy</label>' +
-            '<input type="text" id="aiProxy" placeholder="https://seu-proxy..." value="' +
+            '<input type="text" id="aiProxy" placeholder="https://seu-proxy.workers.dev" value="' +
               esc(cfg.proxyUrl) + '" />' +
             '<div class="field-hint">Recomendado se o site for público: o ' +
-              'servidor guarda a chave em segredo.</div>' +
+              'servidor guarda a chave em segredo. Veja a pasta <code>proxy/</code> ' +
+              'do projeto para montar em minutos.</div>' +
+            '<label style="margin-top:10px">Token de acesso (opcional)</label>' +
+            '<input type="password" id="aiProxyToken" placeholder="se o proxy exigir" value="' +
+              esc(cfg.proxyToken) + '" />' +
+            '<div class="field-hint">Se você configurou um token no proxy, ' +
+              'coloque-o aqui.</div>' +
           '</div>' +
           '<div class="field">' +
             '<label>Modelo</label>' +
@@ -1512,6 +1518,7 @@
         endpoint: selEp,
         apiKey: modal.querySelector('#aiKey').value.trim(),
         proxyUrl: modal.querySelector('#aiProxy').value.trim(),
+        proxyToken: modal.querySelector('#aiProxyToken').value.trim(),
         model: modal.querySelector('#aiModel').value
       };
     }

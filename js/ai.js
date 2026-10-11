@@ -32,6 +32,7 @@
       endpoint: 'direct', // 'direct' | 'proxy'
       apiKey: '',
       proxyUrl: '',
+      proxyToken: '', // token opcional do proxy (header x-app-token)
       model: 'claude-opus-5-5'
     };
   }
@@ -76,6 +77,7 @@
     if (cfg.endpoint === 'proxy') {
       url = cfg.proxyUrl;
       headers = { 'content-type': 'application/json' };
+      if (cfg.proxyToken) headers['x-app-token'] = cfg.proxyToken;
     } else {
       url = API_URL;
       headers = {
