@@ -1,43 +1,40 @@
 /* =========================================================================
- * quiz.js — Gerador e corretor de questionários
+ * quiz.js — Gerador e corretor de questionários (estilo concurso)
  *
- * Gera perguntas automaticamente A PARTIR do que ela escreveu no caderno,
- * para que ela se teste sobre o conteúdo real que estudou. Dois tipos:
+ * Gera perguntas A PARTIR do que ela escreveu/importou, em dois formatos
+ * de prova de verdade:
  *
- *   1) "Complete a frase" (cloze): tira uma palavra-chave de uma frase dela
- *      e pede para completar. Correção automática e exata (tolera acentos e
- *      pequenos erros de digitação).
+ *   1) MÚLTIPLA ESCOLHA (estilo banca): um enunciado e 4 alternativas, só
+ *      uma correta. A alternativa certa é uma afirmação do próprio material
+ *      sobre o tema perguntado; as erradas são afirmações do material sobre
+ *      OUTROS temas (então só uma responde o enunciado). Correção automática.
  *
- *   2) "Explique o conceito": pede para explicar um conceito-chave com as
- *      próprias palavras; depois revela o que ela mesma anotou sobre aquilo
- *      e ela se autoavalia (acertei / preciso revisar). É recordação ativa,
- *      e evita dar uma nota automática injusta num texto livre.
+ *   2) DISSERTATIVA: ela desenvolve a resposta com as próprias palavras;
+ *      depois o sistema revela a "resposta esperada" (tirada do material) e
+ *      um indicador de quantas ideias-chave ela mencionou, e ela se
+ *      autoavalia — como numa prova discursiva corrigida por um humano.
  *
- * Reaproveita o motor de comparação do recall.js. Honesto e offline; dá
- * para plugar uma IA depois (basta trocar generate/grade mantendo o formato).
+ * Reaproveita o motor de comparação do recall.js. Offline e honesto; dá
+ * para plugar uma IA depois mantendo o formato de generate/grade.
  * ========================================================================= */
 
 (function (global) {
   'use strict';
 
-  var R = global.Recall; // motor de comparação
+  var R = global.Recall;
 
-  // Conectivos comuns que têm 5+ letras mas NÃO são "conceitos".
   var CONCEPT_BLOCK = {};
   (
     'antes depois porque entao assim tambem quando sempre nunca exemplo ' +
     'sobre apenas muitas muitos algumas alguns varios varias diversos ' +
     'diversas formas forma maneira maneiras porem contudo ainda sendo ' +
-    'alem dentro fora atraves durante enquanto'
+    'alem dentro fora atraves durante enquanto cada todos todas qualquer ' +
+    'segundo conforme assim isso essa esse esta este aquele'
   )
     .split(' ')
     .forEach(function (w) {
       CONCEPT_BLOCK[w] = true;
     });
-
-  function isStop(word) {
-    return R._tokens(word).length === 0;
-  }
 
   function cleanWord(raw) {
     return (raw || '').replace(/^[^0-9A-Za-zÀ-ÿ]+|[^0-9A-Za-zÀ-ÿ]+$/g, '');
@@ -50,55 +47,16 @@
         return s.replace(/\s+/g, ' ').trim();
       })
       .filter(function (s) {
-        return s.split(' ').length >= 5;
+        var w = s.split(' ').length;
+        return w >= 5 && w <= 45; // frases de tamanho razoável
       });
   }
 
-  // Escolhe a melhor palavra-chave de uma frase para virar lacuna.
-  function pickBlank(words, used) {
-    var best = null;
-    for (var i = 0; i < words.length; i++) {
-      var clean = cleanWord(words[i]);
-      var norm = R._normalize(clean);
-      if (!clean || clean.length < 5) continue;
-      if (/^\d+$/.test(clean)) continue;
-      if (isStop(clean)) continue;
-      if (CONCEPT_BLOCK[norm]) continue;
-      if (used[norm]) continue;
-      var count = words.filter(function (w) {
-        return R._normalize(cleanWord(w)) === norm;
-      }).length;
-      if (count > 1) continue; // lacuna ambígua
-      var score = clean.length;
-      if (!best || score > best.score) {
-        best = { index: i, clean: clean, norm: norm, score: score };
-      }
-    }
-    return best;
+  function hasConcept(sentence, term) {
+    return R._tokens(sentence).indexOf(term) !== -1;
   }
 
-  function makeClozeQuestion(sentence, used) {
-    var words = sentence.split(' ');
-    var pick = pickBlank(words, used);
-    if (!pick) return null;
-    used[pick.norm] = true;
-
-    var raw = words[pick.index];
-    // lacuna de tamanho fixo (não entrega o tamanho da palavra)
-    var blanked = raw.replace(cleanWord(raw), '__________');
-    var display = words.slice();
-    display[pick.index] = blanked;
-
-    return {
-      type: 'cloze',
-      prompt: 'Complete a frase:',
-      text: display.join(' '),
-      answer: pick.clean
-    };
-  }
-
-  // Conceitos mais relevantes do texto (para as perguntas abertas).
-  function topConcepts(text, exclude, limit) {
+  function topConcepts(text, limit) {
     var toks = R._tokens(text);
     var freq = {};
     toks.forEach(function (t) {
@@ -106,7 +64,7 @@
     });
     var list = Object.keys(freq)
       .filter(function (t) {
-        return !exclude[t] && !CONCEPT_BLOCK[t] && t.length >= 5;
+        return !CONCEPT_BLOCK[t] && t.length >= 5;
       })
       .map(function (t) {
         return { term: t, weight: freq[t] };
@@ -114,7 +72,7 @@
     list.sort(function (a, b) {
       return b.weight - a.weight || b.term.length - a.term.length;
     });
-    return list.slice(0, limit || 4);
+    return list.slice(0, limit || 10);
   }
 
   function pretty(normTerm, text) {
@@ -126,71 +84,171 @@
     return normTerm;
   }
 
-  function makeOpenQuestion(term, text) {
-    // frases do caderno dela que falam desse conceito (viram o "gabarito")
-    var sentences = splitSentences(text).filter(function (s) {
-      return R._tokens(s).indexOf(term.term) !== -1;
+  function capText(s, n) {
+    s = s.trim();
+    // garante ponto final para parecer uma afirmação
+    if (!/[.!?]$/.test(s)) s += '.';
+    if (s.length <= n) return s;
+    return s.slice(0, n).trim() + '…';
+  }
+
+  // Monta uma questão de múltipla escolha para um conceito.
+  function makeMC(term, prettyTerm, sentences, usedCorrect) {
+    // candidata correta: frase que fala do conceito (mais curta e clara)
+    var about = sentences.filter(function (s) {
+      return hasConcept(s, term) && !usedCorrect[s];
     });
-    if (!sentences.length) return null;
+    if (!about.length) return null;
+    about.sort(function (a, b) {
+      return a.length - b.length;
+    });
+    var correct = about[0];
+
+    // distratores: frases que NÃO falam do conceito (afirmações sobre
+    // outros temas → não respondem o enunciado)
+    var pool = sentences.filter(function (s) {
+      return !hasConcept(s, term) && s !== correct;
+    });
+    pool = shuffle(dedupe(pool));
+    if (pool.length < 3) return null; // sem distratores suficientes
+
+    var distractors = pool.slice(0, 3);
+
+    var options = shuffle(
+      [{ text: capText(correct, 160), correct: true }].concat(
+        distractors.map(function (d) {
+          return { text: capText(d, 160), correct: false };
+        })
+      )
+    );
+    var correctIndex = options
+      .map(function (o) {
+        return o.correct;
+      })
+      .indexOf(true);
+
+    usedCorrect[correct] = true;
 
     return {
-      type: 'open',
-      prompt: 'Explique com suas palavras:',
-      text: pretty(term.term, text),
-      // o que ela mesma escreveu, para conferir depois
-      reveal: sentences.slice(0, 2).join('. ') + '.'
+      type: 'mc',
+      concept: prettyTerm,
+      stem:
+        'Assinale a alternativa que apresenta uma afirmação correta sobre ',
+      options: options.map(function (o) {
+        return o.text;
+      }),
+      correctIndex: correctIndex
+    };
+  }
+
+  function makeDissertativa(term, prettyTerm, sentences) {
+    var about = sentences.filter(function (s) {
+      return hasConcept(s, term);
+    });
+    if (!about.length) return null;
+
+    var expected = {};
+    about.slice(0, 3).forEach(function (s) {
+      R._tokens(s).forEach(function (t) {
+        if (t !== term) expected[t] = true;
+      });
+    });
+
+    return {
+      type: 'dissertativa',
+      concept: prettyTerm,
+      stem: 'Disserte com suas palavras sobre ',
+      reveal: capText(about.slice(0, 3).join('. '), 500),
+      expected: Object.keys(expected)
     };
   }
 
   /**
-   * generate(text, options) -> [questions]
-   * options: { max }
+   * generate(text, options)
+   * options: { max, mc, diss }
    */
   function generate(text, options) {
     options = options || {};
-    var max = options.max || 6;
-    var used = {};
-    var cloze = [];
-    var open = [];
+    var max = options.max || 7;
+    var wantMC = options.mc != null ? options.mc : 5;
+    var wantDiss = options.diss != null ? options.diss : 2;
 
-    // 1) perguntas de completar a frase (prioridade)
-    var sentences = shuffle(splitSentences(text));
-    sentences.forEach(function (s) {
-      var q = makeClozeQuestion(s, used);
-      if (q) cloze.push(q);
-    });
+    var sentences = dedupe(splitSentences(text));
+    var concepts = topConcepts(text, 14);
 
-    // 2) perguntas abertas de conceito (no máximo 2)
-    var concepts = topConcepts(text, used, 4);
-    for (var j = 0; j < concepts.length && open.length < 2; j++) {
-      var oq = makeOpenQuestion(concepts[j], text);
-      if (oq) {
-        open.push(oq);
-        used[concepts[j].term] = true;
-      }
+    var mcQuestions = [];
+    var usedCorrect = {};
+    for (var i = 0; i < concepts.length && mcQuestions.length < wantMC; i++) {
+      var c = concepts[i];
+      var mc = makeMC(c.term, pretty(c.term, text), sentences, usedCorrect);
+      if (mc) mcQuestions.push(mc);
     }
 
-    // monta o questionário: ~70% cloze + 1-2 abertas, respeitando o máximo
-    var nOpen = Math.min(open.length, Math.max(1, Math.round(max * 0.3)));
-    var nCloze = Math.min(cloze.length, max - nOpen);
-    var questions = cloze.slice(0, nCloze).concat(open.slice(0, nOpen));
+    var dissQuestions = [];
+    for (var j = 0; j < concepts.length && dissQuestions.length < wantDiss; j++) {
+      var cd = concepts[j];
+      var d = makeDissertativa(cd.term, pretty(cd.term, text), sentences);
+      if (d && d.expected.length >= 2) dissQuestions.push(d);
+    }
+
+    // monta respeitando o máximo: prioriza múltipla escolha, fecha com
+    // dissertativas
+    var nDiss = Math.min(dissQuestions.length, Math.max(1, wantDiss));
+    var nMC = Math.min(mcQuestions.length, max - nDiss);
+    if (nMC < 0) nMC = 0;
+    var questions = mcQuestions.slice(0, nMC).concat(dissQuestions.slice(0, nDiss));
+
+    // se não deu para montar múltipla escolha (conteúdo curto), usa o que tiver
+    if (!questions.length) {
+      questions = dissQuestions.slice(0, Math.min(max, dissQuestions.length));
+    }
+
     return shuffle(questions);
   }
 
-  // Corrige uma resposta. Apenas 'cloze' tem correção automática;
-  // 'open' é autoavaliado na interface (a função devolve o gabarito).
-  function grade(question, userAnswer) {
-    userAnswer = userAnswer || '';
-    if (question.type === 'cloze') {
-      var expectedNorm = R._normalize(question.answer);
-      var ok = R._tokens(userAnswer)
-        .concat(R._normalize(userAnswer).split(' '))
-        .some(function (t) {
-          return t && R._wordsMatch(expectedNorm, t);
-        });
-      return { correct: ok, auto: true, expected: question.answer };
+  // Corrige. 'mc' é automática; 'dissertativa' devolve o gabarito e uma
+  // medida de cobertura (autoavaliação final fica na interface).
+  function grade(question, answer) {
+    if (question.type === 'mc') {
+      var chosen = typeof answer === 'number' ? answer : -1;
+      return {
+        type: 'mc',
+        correct: chosen === question.correctIndex,
+        chosen: chosen,
+        correctIndex: question.correctIndex
+      };
     }
-    return { correct: null, auto: false, expected: question.reveal };
+    // dissertativa
+    var userToks = R._tokens(answer || '');
+    var hit = 0;
+    (question.expected || []).forEach(function (e) {
+      if (
+        userToks.some(function (t) {
+          return R._wordsMatch(e, t);
+        })
+      ) {
+        hit++;
+      }
+    });
+    var total = (question.expected || []).length;
+    var coverage = total ? Math.round((hit / total) * 100) : 0;
+    return {
+      type: 'dissertativa',
+      reveal: question.reveal,
+      coverage: coverage,
+      hit: hit,
+      total: total
+    };
+  }
+
+  function dedupe(arr) {
+    var seen = {};
+    return arr.filter(function (s) {
+      var k = R._normalize(s).slice(0, 60);
+      if (seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
   }
 
   function shuffle(arr) {

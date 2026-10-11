@@ -682,7 +682,7 @@
     });
     root.appendChild(back);
 
-    var questions = Quiz.generate(ctx.content, { max: 6 });
+    var questions = Quiz.generate(ctx.content, { max: 7 });
 
     if (!questions.length) {
       root.appendChild(
@@ -703,19 +703,18 @@
     root.appendChild(screen);
 
     var idx = 0;
-    var correctCount = 0;
+    var scoreSum = 0; // soma de créditos (0 a 1 por questão)
     var review = [];
 
-    function renderQuestion() {
+    function renderShell() {
       var q = questions[idx];
       var pct = Math.round((idx / questions.length) * 100);
       screen.innerHTML = '';
-
       screen.appendChild(
         el(
           '<div class="quiz-progress">' +
             '<span>' + esc(ctx.label || 'Questionário') + '</span>' +
-            '<span>Pergunta ' + (idx + 1) + ' de ' + questions.length + '</span>' +
+            '<span>Questão ' + (idx + 1) + ' de ' + questions.length + '</span>' +
           '</div>'
         )
       );
@@ -725,104 +724,146 @@
             'style="width:' + pct + '%"></div></div>'
         )
       );
+      return q;
+    }
 
-      if (q.type === 'cloze') {
-        screen.appendChild(
-          el('<span class="q-type-badge cloze">✏️ Complete a frase</span>')
+    function renderQuestion() {
+      var q = renderShell();
+      if (q.type === 'mc') return renderMC(q);
+      return renderDissertativa(q);
+    }
+
+    // ----- Múltipla escolha -----
+    function renderMC(q) {
+      screen.appendChild(
+        el('<span class="q-type-badge mc">📝 Múltipla escolha</span>')
+      );
+      screen.appendChild(
+        el(
+          '<div class="q-text">' + esc(q.stem) +
+            '<span class="concept">' + esc(q.concept) + '</span>:</div>'
+        )
+      );
+
+      var optionsWrap = el('<div class="mc-options"></div>');
+      var answered = false;
+      q.options.forEach(function (opt, i) {
+        var letter = String.fromCharCode(65 + i);
+        var btn = el(
+          '<button class="mc-option">' +
+            '<span class="mc-letter">' + letter + '</span>' +
+            '<span class="mc-opt-text">' + esc(opt) + '</span>' +
+          '</button>'
         );
-        screen.appendChild(el('<div class="q-text">' + esc(q.text) + '</div>'));
-        var input = el(
-          '<input class="q-input" type="text" placeholder="Digite a palavra que falta..." />'
-        );
-        screen.appendChild(input);
+        btn.addEventListener('click', function () {
+          if (answered) return;
+          answered = true;
+          var r = Quiz.grade(q, i);
+          var credit = r.correct ? 1 : 0;
+          scoreSum += credit;
 
-        var actions = el('<div class="q-actions"></div>');
-        var answerBtn = el('<button class="btn">Responder</button>');
-        actions.appendChild(answerBtn);
-        screen.appendChild(actions);
+          // marca a correta e, se errou, a escolhida
+          var allBtns = optionsWrap.querySelectorAll('.mc-option');
+          allBtns[q.correctIndex].classList.add('correct');
+          if (!r.correct) btn.classList.add('wrong');
+          allBtns.forEach(function (b) {
+            b.disabled = true;
+          });
 
-        function submit() {
-          var val = input.value.trim();
-          if (!val) {
-            toast('Escreve sua resposta 😊');
-            return;
-          }
-          var r = Quiz.grade(q, val);
-          if (r.correct) correctCount++;
-          review.push({ q: q, user: val, correct: r.correct });
-          input.disabled = true;
-          answerBtn.remove();
+          review.push({
+            type: 'mc',
+            concept: q.concept,
+            correct: r.correct,
+            credit: credit,
+            chosenText: q.options[i],
+            correctText: q.options[q.correctIndex]
+          });
 
           var fb = el(
-            '<div class="answer-feedback ' + (r.correct ? 'ok' : 'bad') + '">' +
-              '<h4>' + (r.correct ? '✅ Isso! Você acertou!' :
-                '📌 Quase! A resposta era:') + '</h4>' +
-              (r.correct ? '' :
-                '<div class="reveal-note">' + esc(r.expected) + '</div>') +
+            '<div class="answer-feedback ' + (r.correct ? 'ok' : 'bad') + '" ' +
+              'style="margin-top:16px">' +
+              '<h4>' + (r.correct
+                ? '✅ Correta! Mandou bem!'
+                : '❌ Não foi dessa vez. A correta é a letra ' +
+                  String.fromCharCode(65 + q.correctIndex) + '.') + '</h4>' +
             '</div>'
           );
           screen.appendChild(fb);
           screen.appendChild(nextButton());
+          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        });
+        optionsWrap.appendChild(btn);
+      });
+      screen.appendChild(optionsWrap);
+    }
+
+    // ----- Dissertativa -----
+    function renderDissertativa(q) {
+      screen.appendChild(
+        el('<span class="q-type-badge diss">✍️ Questão dissertativa</span>')
+      );
+      screen.appendChild(
+        el(
+          '<div class="q-text">' + esc(q.stem) +
+            '<span class="concept">' + esc(q.concept) + '</span>:</div>'
+        )
+      );
+      var ta = el(
+        '<textarea class="q-input" style="min-height:160px" ' +
+          'placeholder="Desenvolva sua resposta com suas próprias palavras..."></textarea>'
+      );
+      screen.appendChild(ta);
+
+      var actions = el('<div class="q-actions"></div>');
+      var sendBtn = el('<button class="btn lilac">Responder e ver gabarito</button>');
+      actions.appendChild(sendBtn);
+      screen.appendChild(actions);
+
+      sendBtn.addEventListener('click', function () {
+        if (ta.value.trim().length < 10) {
+          toast('Desenvolva um pouco mais a resposta 😊');
+          return;
         }
-        answerBtn.addEventListener('click', submit);
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') submit();
-        });
-        setTimeout(function () {
-          input.focus();
-        }, 50);
-      } else {
-        // pergunta aberta — autoavaliação
-        screen.appendChild(
-          el('<span class="q-type-badge open">💭 Explique o conceito</span>')
-        );
-        screen.appendChild(
-          el(
-            '<div class="q-text">Explique com suas palavras: ' +
-              '<span class="concept">' + esc(q.text) + '</span></div>'
-          )
-        );
-        var ta = el(
-          '<textarea class="q-input" placeholder="Escreva o que você lembra sobre isso..."></textarea>'
-        );
-        screen.appendChild(ta);
+        ta.disabled = true;
+        sendBtn.remove();
+        var r = Quiz.grade(q, ta.value);
 
-        var actions2 = el('<div class="q-actions"></div>');
-        var revealBtn = el('<button class="btn lilac">Ver o que anotei</button>');
-        actions2.appendChild(revealBtn);
-        screen.appendChild(actions2);
-
-        revealBtn.addEventListener('click', function () {
-          ta.disabled = true;
-          revealBtn.remove();
-          var r = Quiz.grade(q, ta.value);
-          var box = el(
-            '<div class="answer-feedback reveal">' +
-              '<h4>📖 No seu caderno você escreveu:</h4>' +
-              '<div class="reveal-note">' + esc(r.expected) + '</div>' +
-              '<p style="margin-top:12px;color:var(--ink-soft);font-size:.88rem">' +
-                'Você conseguiu lembrar bem?</p>' +
-              '<div class="self-assess">' +
-                '<button class="btn mint small" id="gotIt">✅ Eu lembrei</button>' +
-                '<button class="btn ghost small" id="reviewIt">📌 Preciso revisar</button>' +
-              '</div>' +
-            '</div>'
-          );
-          screen.appendChild(box);
-          box.querySelector('#gotIt').addEventListener('click', function () {
-            correctCount++;
-            review.push({ q: q, user: ta.value, correct: true });
-            nextStep();
-          });
-          box.querySelector('#reviewIt').addEventListener('click', function () {
-            review.push({ q: q, user: ta.value, correct: false });
+        var box = el(
+          '<div class="answer-feedback reveal" style="margin-top:16px">' +
+            '<h4>📖 Resposta esperada (do seu material):</h4>' +
+            '<div class="reveal-note">' + esc(r.reveal) + '</div>' +
+            '<p style="margin-top:12px;color:var(--ink-soft);font-size:.86rem">' +
+              'Você mencionou cerca de <strong>' + r.hit + ' de ' + r.total +
+              '</strong> ideias-chave. Como você avalia sua resposta?</p>' +
+            '<div class="self-assess">' +
+              '<button class="btn mint small" data-c="1">✅ Respondi bem</button>' +
+              '<button class="btn ghost small" data-c="0.5">🟡 Parcialmente</button>' +
+              '<button class="btn ghost small" data-c="0">📌 Preciso revisar</button>' +
+            '</div>' +
+          '</div>'
+        );
+        screen.appendChild(box);
+        box.querySelectorAll('.self-assess button').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var credit = parseFloat(b.getAttribute('data-c'));
+            scoreSum += credit;
+            review.push({
+              type: 'dissertativa',
+              concept: q.concept,
+              credit: credit,
+              user: ta.value,
+              selfLabel:
+                credit === 1 ? 'Respondi bem' :
+                credit === 0.5 ? 'Parcialmente' : 'Preciso revisar'
+            });
             nextStep();
           });
         });
-        setTimeout(function () {
-          ta.focus();
-        }, 50);
-      }
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      });
+      setTimeout(function () {
+        ta.focus();
+      }, 50);
     }
 
     function nextButton() {
@@ -848,15 +889,19 @@
     }
 
     function renderResult() {
-      var score = Math.round((correctCount / questions.length) * 100);
+      var score = Math.round((scoreSum / questions.length) * 100);
       var fb = Recall.feedback(score);
+      var full = review.filter(function (r) { return r.credit === 1; }).length;
+      var partial = review.filter(function (r) { return r.credit > 0 && r.credit < 1; }).length;
+      var zero = review.filter(function (r) { return r.credit === 0; }).length;
+
       Store.addQuiz({
         subjectId: ctx.subjectId,
         sessionId: ctx.sessionId,
         scope: ctx.scope,
         score: score,
         total: questions.length,
-        correct: correctCount
+        correct: full
       });
 
       var ringColor =
@@ -871,41 +916,59 @@
             '<div class="score-ring" style="background:linear-gradient(135deg,' +
               ringColor + ',' + shade(ringColor, -18) + ')">' +
               '<div class="num">' + score + '%</div>' +
-              '<div class="lbl">' + correctCount + ' de ' + questions.length + '</div>' +
+              '<div class="lbl">nota do simulado</div>' +
             '</div>' +
             '<div class="feedback-box">' +
               '<div style="font-size:2rem">' + fb.emoji + '</div>' +
               '<h3>' + fb.title + '</h3>' +
               '<p>' + fb.message + '</p>' +
             '</div>' +
+            '<div class="import-summary">✅ ' + full + ' certa(s) · 🟡 ' +
+              partial + ' parcial(is) · 📌 ' + zero + ' a revisar</div>' +
           '</div>'
         )
       );
 
       var rev = el('<div class="quiz-review"><h4 style="margin-bottom:6px">📋 Revisão das respostas</h4></div>');
       review.forEach(function (r) {
-        var qtext = r.q.type === 'cloze'
-          ? r.q.text.replace('__________', '[' + r.q.answer + ']')
-          : 'Explicar: ' + r.q.text;
-        rev.appendChild(
-          el(
-            '<div class="review-item">' +
-              '<span class="rev-icon">' + (r.correct ? '✅' : '📌') + '</span>' +
-              '<div>' +
-                '<div>' + esc(qtext) + '</div>' +
-                '<div class="rev-ans">Sua resposta: ' +
-                  (r.user ? esc(r.user) : '—') + '</div>' +
-              '</div>' +
-            '</div>'
-          )
-        );
+        if (r.type === 'mc') {
+          rev.appendChild(
+            el(
+              '<div class="review-item">' +
+                '<span class="rev-icon">' + (r.correct ? '✅' : '❌') + '</span>' +
+                '<div>' +
+                  '<div><strong>Múltipla escolha:</strong> ' + esc(r.concept) + '</div>' +
+                  '<div class="rev-ans">Você marcou: ' + esc(r.chosenText) + '</div>' +
+                  (r.correct ? '' :
+                    '<div class="rev-ans" style="color:#2e8b63">Correta: ' +
+                      esc(r.correctText) + '</div>') +
+                '</div>' +
+              '</div>'
+            )
+          );
+        } else {
+          var icon = r.credit === 1 ? '✅' : r.credit === 0.5 ? '🟡' : '📌';
+          rev.appendChild(
+            el(
+              '<div class="review-item">' +
+                '<span class="rev-icon">' + icon + '</span>' +
+                '<div>' +
+                  '<div><strong>Dissertativa:</strong> ' + esc(r.concept) +
+                    ' <span class="rev-ans">(' + esc(r.selfLabel) + ')</span></div>' +
+                  '<div class="rev-ans">Sua resposta: ' +
+                    (r.user ? esc(r.user) : '—') + '</div>' +
+                '</div>' +
+              '</div>'
+            )
+          );
+        }
       });
       screen.appendChild(rev);
 
       var actions = el('<div class="q-actions" style="justify-content:center;margin-top:20px"></div>');
       var again = el('<button class="btn ghost">🔁 Refazer</button>');
       again.addEventListener('click', function () {
-        go('quiz', ctx.subjectId); // regenera (perguntas embaralhadas)
+        go('quiz', ctx.subjectId); // regenera (questões embaralhadas)
       });
       var done = el('<button class="btn">Voltar para a matéria</button>');
       done.addEventListener('click', function () {
