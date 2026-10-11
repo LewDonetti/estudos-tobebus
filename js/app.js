@@ -936,13 +936,15 @@
           'que eu reconheço sozinho quais são as matérias e organizo tudo em ' +
           'módulos pra você. 💛</p>' +
         '<textarea class="import-textarea" id="importText" placeholder="Cole aqui o conteúdo...\n\nExemplo:\n\n# Direito Constitucional\nMódulo 1 - Princípios\nA Constituição Federal de 1988...\n\nPORTUGUÊS\nCrase é a fusão da preposição..."></textarea>' +
-        '<div class="import-hint">💡 <strong>Dica:</strong> pra eu acertar as ' +
-          'matérias, deixe o nome de cada uma em uma linha (ex.: ' +
-          '<code>Direito Constitucional</code>) e, se quiser, separe os ' +
+        '<div class="import-hint">💡 <strong>Dica:</strong> você pode colar o ' +
+          'texto ou enviar um arquivo <strong>Word (.docx)</strong>, ' +
+          '<strong>PDF</strong>, <code>.txt</code> ou <code>.md</code>. ' +
+          'Pra eu acertar as matérias, deixe o nome de cada uma em uma linha ' +
+          '(ex.: <code>Direito Constitucional</code>) e, se quiser, separe os ' +
           'módulos com <code>Módulo 1</code>, <code>Aula 2</code>, etc. ' +
-          'Mas pode colar do seu jeito que eu mostro o que entendi antes de salvar.</div>' +
+          'Mas pode mandar do seu jeito que eu mostro o que entendi antes de salvar.</div>' +
         '<div class="import-toolbar">' +
-          '<button class="btn ghost small" id="pickFile">📎 Enviar arquivo (.txt, .md)</button>' +
+          '<button class="btn ghost small" id="pickFile">📎 Enviar arquivo (Word, PDF, .txt, .md)</button>' +
           '<button class="btn" id="analyzeBtn">🔍 Analisar conteúdo</button>' +
         '</div>' +
         '<div id="importPreview"></div>' +
@@ -952,20 +954,32 @@
 
     var textArea = screen.querySelector('#importText');
 
-    // enviar arquivo → carrega no textarea
+    // enviar arquivo (Word, PDF, txt, md) → extrai o texto para o textarea
     screen.querySelector('#pickFile').addEventListener('click', function () {
       var input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.txt,.md,.markdown,text/plain';
+      input.accept =
+        '.txt,.md,.markdown,.docx,.pdf,text/plain,application/pdf,' +
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       input.addEventListener('change', function () {
         var file = input.files[0];
         if (!file) return;
-        var reader = new FileReader();
-        reader.onload = function () {
-          textArea.value = reader.result;
-          toast('Arquivo carregado! Agora clique em Analisar 🔍');
-        };
-        reader.readAsText(file);
+        var isHeavy = /\.(docx|pdf)$/i.test(file.name);
+        if (isHeavy) {
+          toast('Lendo ' + file.name + '... pode levar alguns segundos ⏳');
+        }
+        FileReaders.extractFile(file)
+          .then(function (text) {
+            if (!text || !text.trim()) {
+              toast('Não achei texto nesse arquivo 😕 (PDF escaneado como imagem não tem texto)');
+              return;
+            }
+            textArea.value = text.trim();
+            toast('Arquivo lido! Agora clique em Analisar 🔍');
+          })
+          .catch(function (err) {
+            toast(err.message || 'Não consegui ler esse arquivo 😕');
+          });
       });
       input.click();
     });
