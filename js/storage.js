@@ -104,6 +104,24 @@
       })[0] || null;
     },
 
+    // Procura matéria por nome (ignora acentos e maiúsculas).
+    findSubjectByName: function (name) {
+      var norm = (name || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .trim();
+      return load().subjects.filter(function (s) {
+        return (
+          s.name
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .trim() === norm
+        );
+      })[0] || null;
+    },
+
     addSubject: function (name, color, emoji) {
       var db = load();
       var subject = {

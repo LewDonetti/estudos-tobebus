@@ -91,6 +91,7 @@
     if (state.view === 'recall') return renderRecall();
     if (state.view === 'notebook') return renderNotebook();
     if (state.view === 'quiz') return renderQuiz();
+    if (state.view === 'import') return renderImport();
   }
 
   // ===== HOME: grade de matérias ==========================================
@@ -919,6 +920,222 @@
     renderQuestion();
   }
 
+  // ===== IMPORTAÇÃO DE MATÉRIAS ==========================================
+
+  function renderImport() {
+    var back = el('<div class="back-link">← Voltar para as matérias</div>');
+    back.addEventListener('click', function () {
+      go('home');
+    });
+    root.appendChild(back);
+
+    var screen = el(
+      '<div class="import-screen">' +
+        '<h2>📥 Importar matérias</h2>' +
+        '<p class="lead">Cole aqui o conteúdo de estudo (ou envie um arquivo) ' +
+          'que eu reconheço sozinho quais são as matérias e organizo tudo em ' +
+          'módulos pra você. 💛</p>' +
+        '<textarea class="import-textarea" id="importText" placeholder="Cole aqui o conteúdo...\n\nExemplo:\n\n# Direito Constitucional\nMódulo 1 - Princípios\nA Constituição Federal de 1988...\n\nPORTUGUÊS\nCrase é a fusão da preposição..."></textarea>' +
+        '<div class="import-hint">💡 <strong>Dica:</strong> pra eu acertar as ' +
+          'matérias, deixe o nome de cada uma em uma linha (ex.: ' +
+          '<code>Direito Constitucional</code>) e, se quiser, separe os ' +
+          'módulos com <code>Módulo 1</code>, <code>Aula 2</code>, etc. ' +
+          'Mas pode colar do seu jeito que eu mostro o que entendi antes de salvar.</div>' +
+        '<div class="import-toolbar">' +
+          '<button class="btn ghost small" id="pickFile">📎 Enviar arquivo (.txt, .md)</button>' +
+          '<button class="btn" id="analyzeBtn">🔍 Analisar conteúdo</button>' +
+        '</div>' +
+        '<div id="importPreview"></div>' +
+      '</div>'
+    );
+    root.appendChild(screen);
+
+    var textArea = screen.querySelector('#importText');
+
+    // enviar arquivo → carrega no textarea
+    screen.querySelector('#pickFile').addEventListener('click', function () {
+      var input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.txt,.md,.markdown,text/plain';
+      input.addEventListener('change', function () {
+        var file = input.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          textArea.value = reader.result;
+          toast('Arquivo carregado! Agora clique em Analisar 🔍');
+        };
+        reader.readAsText(file);
+      });
+      input.click();
+    });
+
+    screen.querySelector('#analyzeBtn').addEventListener('click', function () {
+      var text = textArea.value.trim();
+      if (text.length < 20) {
+        toast('Cole um pouco mais de conteúdo pra eu analisar 😊');
+        return;
+      }
+      var result = Importer.analyze(text);
+      renderImportPreview(screen.querySelector('#importPreview'), result.subjects);
+    });
+  }
+
+  function renderImportPreview(container, detected) {
+    container.innerHTML = '';
+
+    if (!detected.length) {
+      container.appendChild(
+        el(
+          '<div class="empty-state"><div class="big">🤔</div>' +
+            '<p>Não consegui identificar matérias. Tente deixar o nome de ' +
+            'cada matéria em uma linha separada.</p></div>'
+        )
+      );
+      return;
+    }
+
+    // marca se já existe matéria com esse nome
+    detected.forEach(function (s) {
+      s.include = true;
+      var existing = Store.findSubjectByName(s.name);
+      s.existingId = existing ? existing.id : null;
+    });
+
+    container.appendChild(
+      el('<div class="section-title" style="margin-top:22px">✨ Veja o que eu entendi</div>')
+    );
+    container.appendChild(
+      el('<p class="lead">Confira e ajuste se precisar. Você pode renomear, ' +
+        'remover módulos ou tirar uma matéria antes de salvar.</p>')
+    );
+
+    var list = el('<div></div>');
+    container.appendChild(list);
+
+    function draw() {
+      list.innerHTML = '';
+      detected.forEach(function (s, si) {
+        var card = el(
+          '<div class="detected-subject' + (s.include ? '' : ' off') + '">' +
+            '<div class="detected-head">' +
+              '<span class="d-emoji">' + s.emoji + '</span>' +
+              '<input class="d-name" type="text" value="' + esc(s.name) + '" />' +
+              '<span class="badge-tag ' + (s.existingId ? 'exist' : 'new') + '">' +
+                (s.existingId ? 'já existe' : 'nova matéria') + '</span>' +
+              '<button class="mini-x" title="Tirar esta matéria">✕</button>' +
+            '</div>' +
+            '<div class="detected-modules"></div>' +
+          '</div>'
+        );
+
+        var nameInput = card.querySelector('.d-name');
+        nameInput.addEventListener('input', function () {
+          s.name = nameInput.value;
+          var existing = Store.findSubjectByName(s.name);
+          s.existingId = existing ? existing.id : null;
+          var badge = card.querySelector('.badge-tag');
+          badge.className = 'badge-tag ' + (s.existingId ? 'exist' : 'new');
+          badge.textContent = s.existingId ? 'já existe' : 'nova matéria';
+        });
+
+        card.querySelector('.mini-x').addEventListener('click', function () {
+          detected.splice(si, 1);
+          draw();
+          updateSummary();
+        });
+
+        var mods = card.querySelector('.detected-modules');
+        s.modules.forEach(function (m, mi) {
+          var mod = el(
+            '<div class="detected-module">' +
+              '<div class="m-info">' +
+                '<div class="m-title">' + esc(m.title) + '</div>' +
+                '<div class="m-preview">' + esc(previewText(m.content)) + '</div>' +
+              '</div>' +
+              '<button class="mini-x" title="Remover módulo">✕</button>' +
+            '</div>'
+          );
+          mod.querySelector('.mini-x').addEventListener('click', function () {
+            s.modules.splice(mi, 1);
+            if (!s.modules.length) {
+              detected.splice(si, 1);
+            }
+            draw();
+            updateSummary();
+          });
+          mods.appendChild(mod);
+        });
+
+        list.appendChild(card);
+      });
+    }
+
+    function previewText(t) {
+      var c = (t || '').replace(/\s+/g, ' ').trim();
+      return c.length > 90 ? c.slice(0, 90) + '…' : c;
+    }
+
+    var summary = el('<div class="import-summary"></div>');
+    var importBtn = el('<button class="btn mint">✅ Importar tudo</button>');
+    var actions = el('<div class="q-actions" style="justify-content:center;margin-top:10px"></div>');
+    actions.appendChild(importBtn);
+
+    function counts() {
+      var nSubjects = detected.length;
+      var nModules = detected.reduce(function (acc, s) {
+        return acc + s.modules.length;
+      }, 0);
+      return { nSubjects: nSubjects, nModules: nModules };
+    }
+
+    function updateSummary() {
+      var c = counts();
+      summary.textContent =
+        c.nSubjects + ' matéria' + (c.nSubjects === 1 ? '' : 's') +
+        ' · ' + c.nModules + ' caderno' + (c.nModules === 1 ? '' : 's') +
+        ' serão importados';
+      importBtn.style.display = c.nSubjects ? '' : 'none';
+    }
+
+    importBtn.addEventListener('click', function () {
+      var createdSubjects = 0;
+      var createdModules = 0;
+      detected.forEach(function (s) {
+        var name = (s.name || '').trim();
+        if (!name || !s.modules.length) return;
+        var existing = Store.findSubjectByName(name);
+        var subjectId;
+        if (existing) {
+          subjectId = existing.id;
+        } else {
+          var created = Store.addSubject(name, s.color, s.emoji);
+          subjectId = created.id;
+          createdSubjects++;
+        }
+        s.modules.forEach(function (m) {
+          Store.addSession(subjectId, {
+            title: m.title,
+            content: m.content,
+            postits: []
+          });
+          createdModules++;
+        });
+      });
+      toast(
+        '🎉 Importado! ' + createdSubjects + ' matéria(s) nova(s) e ' +
+          createdModules + ' caderno(s) adicionados.'
+      );
+      go('home');
+    });
+
+    container.appendChild(summary);
+    container.appendChild(actions);
+    draw();
+    updateSummary();
+    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   // ===== MODAIS ===========================================================
 
   function openSubjectModal() {
@@ -1097,6 +1314,9 @@
   });
   document.getElementById('exportBtn').addEventListener('click', exportBackup);
   document.getElementById('importBtn').addEventListener('click', importBackup);
+  document.getElementById('importContentBtn').addEventListener('click', function () {
+    go('import');
+  });
 
   // start
   render();
