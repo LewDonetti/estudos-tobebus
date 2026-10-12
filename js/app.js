@@ -15,9 +15,14 @@
   var quizCtx = null;
   var recallCtx = null;
   var noteKeyHandler = null; // handler do "modo caderno" ativo
+  var ytPlayer = null, ytTimer = null; // player de vídeo atual
 
   function clearNoteMode() {
     if (noteKeyHandler) { document.removeEventListener('keydown', noteKeyHandler, true); noteKeyHandler = null; }
+  }
+  function clearPlayer() {
+    if (ytTimer) { clearInterval(ytTimer); ytTimer = null; }
+    if (ytPlayer) { try { ytPlayer.destroy && ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
   }
 
   // ----- helpers ----------------------------------------------------------
@@ -97,6 +102,7 @@
   // ===== RENDER ============================================================
   function render() {
     clearNoteMode();
+    clearPlayer();
     root.innerHTML = '';
     var v = state.view;
     if (v === 'home') return renderHome();
@@ -325,10 +331,21 @@
 
     if (l.type === 'video') {
       var id = ytId(l.videoUrl);
-      var frameId = null, modeBtn = null;
+      var frameId = null, modeBtn = null, vwrap = null;
       if (id) {
         frameId = 'yt-' + Math.random().toString(36).slice(2, 8);
-        root.appendChild(el('<div class="video-wrap"><div id="' + frameId + '"></div></div>'));
+        vwrap = el('<div class="video-wrap">' +
+          '<div id="' + frameId + '"></div>' +
+          '<div class="v-cover"></div>' +
+          '<div class="v-center">▶</div>' +
+          '<div class="v-controls">' +
+            '<button class="v-btn v-play" title="Play/Pause">▶</button>' +
+            '<div class="v-time">0:00 / 0:00</div>' +
+            '<div class="v-seek"><div class="v-seek-fill"></div></div>' +
+            '<button class="v-btn v-fs" title="Tela cheia">⛶</button>' +
+          '</div>' +
+        '</div>');
+        root.appendChild(vwrap);
         var on = localStorage.getItem('cadernoModo') === '1';
         var bar = el('<div class="note-mode-bar">' +
           '<button class="btn ' + (on ? 'success' : 'ghost') + ' small" id="noteModeBtn">📝 Modo caderno: ' + (on ? 'ligado' : 'desligado') + '</button>' +
@@ -346,16 +363,8 @@
       root.appendChild(videoNotes);
 
       if (id) {
-        var player = null;
-        ensureYT(function () {
-          try {
-            player = new YT.Player(frameId, {
-              videoId: id, host: 'https://www.youtube-nocookie.com',
-              playerVars: { rel: 0, modestbranding: 1, playsinline: 1 }
-            });
-          } catch (e) {}
-        });
-        setupNoteMode(l, modeBtn, videoNotes, function () { return player; });
+        buildPlayer(vwrap, frameId, id);
+        setupNoteMode(l, modeBtn, videoNotes, function () { return ytPlayer; });
       }
     } else {
       root.appendChild(el('<div class="block-label">📒 Conteúdo</div>'));
@@ -410,6 +419,64 @@
     root.appendChild(actions);
   }
 
+  // Player próprio: controla o vídeo por cima (iframe sem foco de teclado).
+  function buildPlayer(wrap, frameId, id) {
+    var cover = wrap.querySelector('.v-cover');
+    var center = wrap.querySelector('.v-center');
+    var playBtn = wrap.querySelector('.v-play');
+    var timeEl = wrap.querySelector('.v-time');
+    var seek = wrap.querySelector('.v-seek');
+    var fill = wrap.querySelector('.v-seek-fill');
+    var fsBtn = wrap.querySelector('.v-fs');
+
+    function toggle() {
+      if (!ytPlayer || !ytPlayer.getPlayerState) return;
+      if (ytPlayer.getPlayerState() === 1) ytPlayer.pauseVideo(); else ytPlayer.playVideo();
+    }
+    cover.addEventListener('click', toggle);
+    center.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+    playBtn.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+    seek.addEventListener('click', function (e) {
+      if (!ytPlayer || !ytPlayer.getDuration) return;
+      var r = seek.getBoundingClientRect();
+      var frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      ytPlayer.seekTo(frac * (ytPlayer.getDuration() || 0), true);
+    });
+    fsBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (document.fullscreenElement) { document.exitFullscreen(); }
+      else if (wrap.requestFullscreen) { wrap.requestFullscreen(); }
+    });
+
+    function setPlaying(p) {
+      playBtn.textContent = p ? '⏸' : '▶';
+      center.style.display = p ? 'none' : 'flex';
+    }
+    function update() {
+      try {
+        if (ytPlayer && ytPlayer.getDuration) {
+          var c = ytPlayer.getCurrentTime() || 0, d = ytPlayer.getDuration() || 0;
+          timeEl.textContent = fmtTime(c) + ' / ' + fmtTime(d);
+          fill.style.width = (d ? (c / d) * 100 : 0) + '%';
+        }
+      } catch (e) {}
+    }
+
+    ensureYT(function () {
+      try {
+        ytPlayer = new YT.Player(frameId, {
+          videoId: id, host: 'https://www.youtube-nocookie.com',
+          playerVars: { controls: 0, rel: 0, modestbranding: 1, playsinline: 1, disablekb: 1, fs: 0 },
+          events: {
+            onReady: update,
+            onStateChange: function (ev) { setPlaying(ev.data === 1); }
+          }
+        });
+      } catch (e) {}
+    });
+    ytTimer = setInterval(update, 500);
+  }
+
   // Modo caderno: ao digitar, pausa o vídeo e abre o caderno rápido.
   function setupNoteMode(lesson, btn, notesTa, getPlayer) {
     var on = localStorage.getItem('cadernoModo') === '1';
@@ -456,7 +523,7 @@
         '<textarea class="note-ta" placeholder="Escreva sua anotação..."></textarea>' +
         '<div class="note-hint">Enter para salvar e voltar ao vídeo · Shift+Enter para nova linha · Esc para cancelar</div>' +
         '</div></div>');
-      document.body.appendChild(overlay);
+      (document.fullscreenElement || document.body).appendChild(overlay);
       var ta = overlay.querySelector('.note-ta');
       ta.value = firstChar === ' ' ? '' : firstChar;
       ta.focus();
