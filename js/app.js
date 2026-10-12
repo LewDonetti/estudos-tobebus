@@ -1639,6 +1639,106 @@
     );
   }
 
+  // ===== TELA DE LOGIN ====================================================
+
+  function renderLogin() {
+    root.innerHTML = '';
+    var mode = Auth.userCount() === 0 ? 'register' : 'login';
+
+    var card = el(
+      '<div class="auth-screen">' +
+        '<div class="auth-card">' +
+          '<div class="auth-logo">📚</div>' +
+          '<h1>Cantinho de Estudos</h1>' +
+          '<p class="auth-sub">Entre para acessar seus estudos 💛</p>' +
+          '<div class="auth-tabs">' +
+            '<button class="auth-tab" data-tab="login">Entrar</button>' +
+            '<button class="auth-tab" data-tab="register">Criar conta</button>' +
+          '</div>' +
+          '<div id="authForm"></div>' +
+        '</div>' +
+        '<div class="auth-foot">Feito com ❤ para você arrasar nos estudos.</div>' +
+      '</div>'
+    );
+    root.appendChild(card);
+
+    var formBox = card.querySelector('#authForm');
+
+    function setTab(m) {
+      mode = m;
+      card.querySelectorAll('.auth-tab').forEach(function (b) {
+        b.classList.toggle('on', b.getAttribute('data-tab') === m);
+      });
+      drawForm();
+    }
+    card.querySelectorAll('.auth-tab').forEach(function (b) {
+      b.addEventListener('click', function () {
+        setTab(b.getAttribute('data-tab'));
+      });
+    });
+
+    function drawForm() {
+      if (mode === 'register') {
+        formBox.innerHTML =
+          '<div class="field"><label>Seu nome</label>' +
+            '<input type="text" id="rgName" placeholder="Como quer ser chamada?" /></div>' +
+          '<div class="field"><label>Usuário</label>' +
+            '<input type="text" id="rgUser" placeholder="ex: mariazinha" autocapitalize="none" /></div>' +
+          '<div class="field"><label>Senha</label>' +
+            '<input type="password" id="rgPass" placeholder="crie uma senha" /></div>' +
+          '<div class="field"><label>Confirmar senha</label>' +
+            '<input type="password" id="rgPass2" placeholder="repita a senha" /></div>' +
+          '<button class="btn" id="rgBtn" style="width:100%;justify-content:center;margin-top:6px">Criar conta ✨</button>';
+        var rgBtn = formBox.querySelector('#rgBtn');
+        function doRegister() {
+          var name = formBox.querySelector('#rgName').value;
+          var u = formBox.querySelector('#rgUser').value;
+          var p = formBox.querySelector('#rgPass').value;
+          var p2 = formBox.querySelector('#rgPass2').value;
+          if (p !== p2) { toast('As senhas não bateram 😊'); return; }
+          rgBtn.disabled = true; rgBtn.textContent = 'Criando...';
+          Auth.register(name, u, p)
+            .then(function () { toast('Conta criada! Bem-vinda 💛'); showApp(); })
+            .catch(function (err) {
+              toast(err.message || 'Não deu certo');
+              rgBtn.disabled = false; rgBtn.textContent = 'Criar conta ✨';
+            });
+        }
+        rgBtn.addEventListener('click', doRegister);
+        formBox.querySelector('#rgPass2').addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') doRegister();
+        });
+        formBox.querySelector('#rgName').focus();
+      } else {
+        formBox.innerHTML =
+          '<div class="field"><label>Usuário</label>' +
+            '<input type="text" id="lgUser" placeholder="seu usuário" autocapitalize="none" /></div>' +
+          '<div class="field"><label>Senha</label>' +
+            '<input type="password" id="lgPass" placeholder="sua senha" /></div>' +
+          '<button class="btn" id="lgBtn" style="width:100%;justify-content:center;margin-top:6px">Entrar 💛</button>';
+        var lgBtn = formBox.querySelector('#lgBtn');
+        function doLogin() {
+          var u = formBox.querySelector('#lgUser').value;
+          var p = formBox.querySelector('#lgPass').value;
+          lgBtn.disabled = true; lgBtn.textContent = 'Entrando...';
+          Auth.login(u, p)
+            .then(function () { showApp(); })
+            .catch(function (err) {
+              toast(err.message || 'Não deu certo');
+              lgBtn.disabled = false; lgBtn.textContent = 'Entrar 💛';
+            });
+        }
+        lgBtn.addEventListener('click', doLogin);
+        formBox.querySelector('#lgPass').addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') doLogin();
+        });
+        formBox.querySelector('#lgUser').focus();
+      }
+    }
+
+    setTab(mode);
+  }
+
   // ===== liga os botões do topo ===========================================
 
   document.getElementById('homeBtn').addEventListener('click', function () {
@@ -1650,8 +1750,34 @@
     go('import');
   });
   document.getElementById('aiBtn').addEventListener('click', openAIModal);
-  updateAIBadge();
+  document.getElementById('logoutBtn').addEventListener('click', function () {
+    confirmModal(
+      'Sair da conta?',
+      'Seus estudos continuam salvos. Você pode entrar de novo quando quiser.',
+      function () {
+        Auth.logout();
+        showLogin();
+        toast('Até logo! 💛');
+      }
+    );
+  });
 
-  // start
-  render();
+  // ===== início (login ou app) ============================================
+
+  function showApp() {
+    document.getElementById('topbar').classList.remove('hidden');
+    var u = Auth.currentUser();
+    var chip = document.getElementById('userChip');
+    if (chip && u) chip.textContent = '👋 ' + u.name;
+    updateAIBadge();
+    go('home');
+  }
+
+  function showLogin() {
+    document.getElementById('topbar').classList.add('hidden');
+    renderLogin();
+  }
+
+  if (Auth.isLoggedIn()) showApp();
+  else showLogin();
 })();

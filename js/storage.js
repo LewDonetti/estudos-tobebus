@@ -13,7 +13,11 @@
 (function (global) {
   'use strict';
 
-  var STORAGE_KEY = 'cadernoEstudos:v1';
+  // Chave de armazenamento POR USUÁRIO (cada pessoa vê só os dados dela).
+  function storageKey() {
+    var user = global.Auth && global.Auth.currentUser && global.Auth.currentUser();
+    return 'cadernoEstudos:v1:' + (user ? user.id : 'anon');
+  }
 
   // ----- Utilidades -------------------------------------------------------
 
@@ -37,7 +41,7 @@
 
   function load() {
     try {
-      var raw = global.localStorage.getItem(STORAGE_KEY);
+      var raw = global.localStorage.getItem(storageKey());
       if (!raw) return seedDefaults();
       var data = JSON.parse(raw);
       // garante que todas as coleções existam
@@ -54,7 +58,7 @@
 
   function save(data) {
     try {
-      global.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      global.localStorage.setItem(storageKey(), JSON.stringify(data));
       return true;
     } catch (e) {
       console.error('Não consegui salvar os dados.', e);

@@ -1062,6 +1062,106 @@ textarea.q-input {
   font-size: 0.85rem;
 }
 
+/* ---------- Login ---------- */
+.auth-screen {
+  min-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  gap: 16px;
+}
+
+.auth-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 34px 28px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.auth-logo {
+  font-size: 3rem;
+  filter: drop-shadow(0 6px 12px rgba(255, 79, 152, 0.3));
+}
+
+.auth-card h1 {
+  font-size: 1.5rem;
+  margin-top: 6px;
+}
+
+.auth-sub {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  background: var(--bg-2);
+  padding: 5px;
+  border-radius: 14px;
+  margin-bottom: 20px;
+}
+
+.auth-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 9px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.auth-tab.on {
+  background: #fff;
+  color: var(--rose-deep);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.auth-card .field {
+  text-align: left;
+}
+
+.auth-card .field input {
+  width: 100%;
+  padding: 11px 13px;
+  border: 2px solid var(--paper-line);
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.auth-card .field input:focus {
+  outline: none;
+  border-color: var(--rose);
+}
+
+.auth-foot {
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+
+.user-chip {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: rgba(255, 126, 182, 0.14);
+  padding: 7px 14px;
+  border-radius: 999px;
+  margin-right: 2px;
+}
+
 /* ---------- IA ---------- */
 .spinner {
   width: 46px;
