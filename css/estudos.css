@@ -198,6 +198,18 @@ body {
 .v-seek-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #fff; border-radius: 999px; }
 .video-wrap:fullscreen { padding-top: 0; width: 100%; height: 100%; border-radius: 0; }
 .video-wrap:fullscreen iframe { inset: 0; }
+.ext-video {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--primary);
+  border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow-sm);
+}
+.ext-video .ext-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.ext-video .ext-icon {
+  width: 44px; height: 44px; border-radius: 10px; background: var(--primary-soft); color: var(--primary-ink);
+  display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0;
+}
+.ext-video .ext-title { font-weight: 700; }
+.ext-video .ext-sub { font-size: 0.8rem; color: var(--ink-3); margin-top: 1px; }
 .video-empty {
   padding: 40px 20px; text-align: center; background: var(--surface-2); border: 1px dashed var(--line);
   border-radius: var(--radius); color: var(--ink-3);

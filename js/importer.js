@@ -199,16 +199,19 @@
     return { subjects: subjects };
   }
 
-  var YOUTUBE_RE = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?[^\s]*v=[\w-]+|youtu\.be\/[\w-]+|youtube\.com\/embed\/[\w-]+)/i;
+  var YOUTUBE_RE = /(youtube\.com\/watch\?[^\s]*v=[\w-]+|youtu\.be\/[\w-]+|youtube\.com\/embed\/[\w-]+|youtube\.com\/shorts\/[\w-]+)/i;
+  // Plataformas cujos links tratamos como AULA DE VÍDEO (abrem na origem).
+  var VIDEO_HOST_RE = /estrategiaconcursos\.com\.br|gran(cursos|concursos)|alura\.com\.br|hotmart|vimeo\.com|\.mp4(\?|$)/i;
 
-  // Separa URLs do texto: YouTube → vídeos; demais → links de apoio.
+  // Separa URLs do texto: YouTube e plataformas de vídeo → vídeos;
+  // demais → links de apoio.
   function extractMedia(content) {
     var videos = [];
     var links = [];
     var urlRe = /(https?:\/\/[^\s)]+)|(www\.[^\s)]+)/gi;
     var text = (content || '').replace(urlRe, function (url) {
       var full = /^https?:\/\//i.test(url) ? url : 'https://' + url;
-      if (YOUTUBE_RE.test(full)) {
+      if (YOUTUBE_RE.test(full) || VIDEO_HOST_RE.test(full)) {
         videos.push({ url: full, title: '' });
       } else {
         links.push({ url: full, title: '' });

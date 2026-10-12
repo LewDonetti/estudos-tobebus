@@ -77,6 +77,14 @@
     var m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/))([\w-]{11})/i);
     return m ? m[1] : null;
   }
+  function videoPlatform(url) {
+    if (/estrategiaconcursos\.com\.br/i.test(url || '')) return 'Estratégia';
+    if (/gran(cursos|concursos)/i.test(url || '')) return 'Gran Cursos';
+    if (/alura\.com\.br/i.test(url || '')) return 'Alura';
+    if (/hotmart/i.test(url || '')) return 'Hotmart';
+    if (/vimeo\.com/i.test(url || '')) return 'Vimeo';
+    return null;
+  }
   function fmtTime(sec) {
     sec = Math.max(0, Math.floor(sec || 0));
     var m = Math.floor(sec / 60), s = sec % 60;
@@ -257,7 +265,10 @@
     lessons.forEach(function (l) {
       var icon = l.type === 'video' ? '<div class="lesson-icon video">▶</div>' : '<div class="lesson-icon texto">📄</div>';
       var bits = [];
-      if (l.type === 'video') bits.push('Vídeo');
+      if (l.type === 'video') {
+        var pf = ytId(l.videoUrl) ? 'YouTube' : (videoPlatform(l.videoUrl) || (l.videoUrl ? 'Externo' : ''));
+        bits.push('Vídeo' + (pf ? ' · ' + pf : ''));
+      }
       if (l.content && l.content.trim()) bits.push('Conteúdo');
       if (l.links && l.links.length) bits.push(l.links.length + ' link' + (l.links.length === 1 ? '' : 's'));
       var row = el(
@@ -332,7 +343,9 @@
     if (l.type === 'video') {
       var id = ytId(l.videoUrl);
       var frameId = null, modeBtn = null, vwrap = null;
+
       if (id) {
+        // --- YouTube: player embutido + Modo caderno ---
         frameId = 'yt-' + Math.random().toString(36).slice(2, 8);
         vwrap = el('<div class="video-wrap">' +
           '<div id="' + frameId + '"></div>' +
@@ -352,19 +365,42 @@
           '<span class="nm-hint">Com o modo ligado, é só começar a digitar que o vídeo pausa e o caderno abre.</span></div>');
         root.appendChild(bar);
         modeBtn = bar.querySelector('#noteModeBtn');
-      } else {
-        root.appendChild(el('<div class="video-empty">Cole o link do vídeo (YouTube) abaixo para assistir aqui.</div>'));
-      }
-      root.appendChild(el('<div class="block-label">🔗 Link do vídeo</div>'));
-      videoInput = el('<input type="text" class="q-input" style="min-height:auto" placeholder="https://youtube.com/watch?v=..." value="' + esc(l.videoUrl || '') + '" />');
-      root.appendChild(videoInput);
-      root.appendChild(el('<div class="block-label">📝 Minhas anotações</div>'));
-      videoNotes = el('<textarea class="q-input" placeholder="Anote os pontos importantes da aula...">' + esc(l.content || '') + '</textarea>');
-      root.appendChild(videoNotes);
 
-      if (id) {
+        root.appendChild(el('<div class="block-label">🔗 Link do vídeo</div>'));
+        videoInput = el('<input type="text" class="q-input" style="min-height:auto" placeholder="https://youtube.com/watch?v=..." value="' + esc(l.videoUrl || '') + '" />');
+        root.appendChild(videoInput);
+        root.appendChild(el('<div class="block-label">📝 Minhas anotações</div>'));
+        videoNotes = el('<textarea class="q-input" placeholder="Anote os pontos importantes da aula...">' + esc(l.content || '') + '</textarea>');
+        root.appendChild(videoNotes);
+
         buildPlayer(vwrap, frameId, id);
         setupNoteMode(l, modeBtn, videoNotes, function () { return ytPlayer; });
+      } else if (l.videoUrl && l.videoUrl.trim()) {
+        // --- Vídeo externo (plataforma com login): botão + caderno ---
+        var plat = videoPlatform(l.videoUrl);
+        root.appendChild(el(
+          '<div class="ext-video">' +
+            '<div class="ext-left"><div class="ext-icon">🔒</div>' +
+              '<div><div class="ext-title">Vídeo' + (plat ? ' · ' + esc(plat) : ' na plataforma') + '</div>' +
+              '<div class="ext-sub">Abre na plataforma (é preciso estar logada). Anote aqui do lado.</div></div></div>' +
+            '<a class="btn" href="' + esc(l.videoUrl) + '" target="_blank" rel="noopener">▶ Assistir' + (plat ? ' no ' + esc(plat) : ' na plataforma') + '</a>' +
+          '</div>'
+        ));
+        root.appendChild(el('<div class="block-label">🔗 Link do vídeo</div>'));
+        videoInput = el('<input type="text" class="q-input" style="min-height:auto" placeholder="https://..." value="' + esc(l.videoUrl || '') + '" />');
+        root.appendChild(videoInput);
+        root.appendChild(el('<div class="block-label">📒 Caderno de anotações</div>'));
+        notebook = buildNotebook(l, postits);
+        root.appendChild(notebook);
+      } else {
+        // --- Sem link ainda ---
+        root.appendChild(el('<div class="video-empty">Cole o link do vídeo abaixo. Se for YouTube, toca aqui dentro; se for de uma plataforma (ex.: Estratégia), vira um botão "Assistir".</div>'));
+        root.appendChild(el('<div class="block-label">🔗 Link do vídeo</div>'));
+        videoInput = el('<input type="text" class="q-input" style="min-height:auto" placeholder="Cole o link do YouTube ou da plataforma" value="" />');
+        root.appendChild(videoInput);
+        root.appendChild(el('<div class="block-label">📒 Caderno de anotações</div>'));
+        notebook = buildNotebook(l, postits);
+        root.appendChild(notebook);
       }
     } else {
       root.appendChild(el('<div class="block-label">📒 Conteúdo</div>'));
@@ -404,16 +440,18 @@
     var saveBtn = el('<button class="btn success">💾 Salvar aula</button>');
     saveBtn.addEventListener('click', function () {
       var patch = { title: titleInput.value.trim() || 'Aula', links: links };
-      if (l.type === 'video') {
-        patch.videoUrl = videoInput.value.trim();
-        patch.content = videoNotes.value;
-      } else {
+      if (videoInput) patch.videoUrl = videoInput.value.trim();
+      if (notebook) {
         patch.content = notebook.querySelector('.paper-text').value;
         patch.postits = postits;
+      } else if (videoNotes) {
+        patch.content = videoNotes.value;
       }
+      var urlChanged = videoInput && (videoInput.value.trim() !== (l.videoUrl || ''));
       Store.updateLesson(l.id, patch);
       toast('Aula salva.');
-      if (l.type === 'video') go('lesson', { subjectId: s.id, moduleId: m.id, lessonId: l.id });
+      // se o link mudou (ex.: colou um do YouTube), recarrega para montar o player certo
+      if (l.type === 'video' && urlChanged) go('lesson', { subjectId: s.id, moduleId: m.id, lessonId: l.id });
     });
     actions.appendChild(saveBtn);
     root.appendChild(actions);
@@ -1000,7 +1038,8 @@
     var overlay = el('<div class="modal-overlay"></div>');
     var modal = el('<div class="modal"><h3>Nova aula de vídeo</h3>' +
       '<div class="field"><label>Título</label><input type="text" id="lTitle" placeholder="Ex: Aula 1 — Introdução" /></div>' +
-      '<div class="field"><label>Link do vídeo (YouTube)</label><input type="text" id="lUrl" placeholder="https://youtube.com/watch?v=..." /></div>' +
+      '<div class="field"><label>Link do vídeo</label><input type="text" id="lUrl" placeholder="YouTube ou plataforma (ex.: Estratégia)" />' +
+      '<div class="field-hint">YouTube toca aqui dentro (com Modo caderno). Link de plataforma vira botão "Assistir".</div></div>' +
       '<div class="modal-actions"><button class="btn ghost" id="cancel">Cancelar</button><button class="btn" id="create">Adicionar</button></div></div>');
     overlay.appendChild(modal);
     function close() { overlay.remove(); }
