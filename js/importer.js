@@ -64,10 +64,15 @@
     return null;
   }
 
+  function isUrlLine(t) {
+    return /https?:\/\//i.test(t) || /(^|\s)www\.\S+/i.test(t);
+  }
+
   // Um palpite: a linha é um TÍTULO DE MATÉRIA?
   function looksLikeSubject(line) {
     var t = line.trim();
     if (!t) return false;
+    if (isUrlLine(t)) return false; // URL nunca é título
 
     // markdown "# Título"
     if (/^#\s+\S/.test(t) && !/^#{2,}/.test(t)) return true;
@@ -92,6 +97,7 @@
   function looksLikeModule(line) {
     var t = line.trim();
     if (!t) return false;
+    if (isUrlLine(t)) return false; // URL nunca é título
     if (/^#{2,}\s+\S/.test(t)) return true; // ## ou ###
     if (/^(m[oó]dulo|aula|tema|assunto|cap[ií]tulo|unidade|li[cç][aã]o)\b/i.test(t)) {
       return true;
