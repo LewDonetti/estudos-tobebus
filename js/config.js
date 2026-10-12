@@ -1,17 +1,17 @@
 /* =========================================================================
  * config.js — Configuração da nuvem (contas em qualquer dispositivo)
  *
- * Preencha com os dados do SEU projeto Supabase para ligar a nuvem.
- * Deixe em branco para usar contas locais (sem nuvem) — útil para testar.
+ * Preenchido com o projeto Supabase "cantinho-estudos".
+ * Estes dois valores são PÚBLICOS e seguros de ficar aqui: a chave
+ * "publishable" é feita para o navegador; a segurança real é garantida
+ * pelas regras do banco (RLS). Veja supabase/README.md.
  *
- * Esses dois valores são PÚBLICOS e seguros de ficar aqui (a "anon key" é
- * feita para o navegador; a segurança real é garantida pelas regras do
- * banco — RLS). Veja supabase/README.md para o passo a passo.
+ * Para voltar ao modo local (sem nuvem), deixe os dois em branco.
  * ========================================================================= */
 
 window.APP_CONFIG = {
-  SUPABASE_URL: '',       // ex.: https://xxxxxxxx.supabase.co
-  SUPABASE_ANON_KEY: ''   // a chave "anon public"
+  SUPABASE_URL: 'https://dqifxbaejgsehognouoq.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_pG_KaTdFp3qYYYqe6hyI0Q_pS4_Yq32'
 };
 
 window.CloudEnabled = function () {

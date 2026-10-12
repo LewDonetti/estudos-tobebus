@@ -15,7 +15,7 @@
 (function (global) {
   'use strict';
 
-  var SB_CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.js';
+  var SB_CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js';
   var client = null;
   var account = null; // { id, name, email }
 
