@@ -25,6 +25,33 @@
     if (ytPlayer) { try { ytPlayer.destroy && ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
   }
 
+  // ----- cronômetro de estudo (conta tempo numa aula) --------------------
+  var studyCtx = null;
+  var STUDY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+  function studyStart(subjectId) {
+    studyStop();
+    studyCtx = { subjectId: subjectId, seconds: 0, last: Date.now() };
+    studyCtx.bump = function () { if (studyCtx) studyCtx.last = Date.now(); };
+    STUDY_EVENTS.forEach(function (ev) { document.addEventListener(ev, studyCtx.bump, true); });
+    studyCtx.timer = setInterval(function () {
+      if (!studyCtx) return;
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      var playing = false;
+      try { playing = ytPlayer && ytPlayer.getPlayerState && ytPlayer.getPlayerState() === 1; } catch (e) {}
+      if (playing) studyCtx.last = Date.now(); // vídeo tocando conta como atividade
+      var active = (Date.now() - studyCtx.last) < 180000; // 3 min de tolerância
+      if (active) studyCtx.seconds++;
+    }, 1000);
+  }
+  function studyStop() {
+    if (!studyCtx) return;
+    clearInterval(studyCtx.timer);
+    STUDY_EVENTS.forEach(function (ev) { document.removeEventListener(ev, studyCtx.bump, true); });
+    if (studyCtx.seconds >= 5) Store.addStudyTime(studyCtx.subjectId, studyCtx.seconds);
+    studyCtx = null;
+  }
+  window.addEventListener('beforeunload', studyStop);
+
   // ----- helpers ----------------------------------------------------------
   function el(html) {
     var t = document.createElement('template');
@@ -90,6 +117,14 @@
     var m = Math.floor(sec / 60), s = sec % 60;
     return m + ':' + ('0' + s).slice(-2);
   }
+  // Duração amigável: "2h 15min", "45min", "0min"
+  function fmtDur(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    var h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    if (h && m) return h + 'h ' + m + 'min';
+    if (h) return h + 'h';
+    return m + 'min';
+  }
   // Carrega a API do YouTube uma vez e chama o callback quando pronta.
   var ytReady = false, ytQueue = [];
   function ensureYT(cb) {
@@ -111,6 +146,7 @@
   function render() {
     clearNoteMode();
     clearPlayer();
+    studyStop();
     root.innerHTML = '';
     var v = state.view;
     if (v === 'home') return renderHome();
@@ -120,6 +156,7 @@
     if (v === 'recall') return renderRecall();
     if (v === 'quiz') return renderQuiz();
     if (v === 'import') return renderImport();
+    if (v === 'profile') return renderProfile();
   }
 
   // ===== HOME (matérias) ===================================================
@@ -305,6 +342,8 @@
     var m = Store.getModule(state.moduleId);
     var l = Store.getLesson(state.lessonId);
     if (!s || !m || !l) return go('module', { subjectId: state.subjectId, moduleId: state.moduleId });
+
+    studyStart(s.id); // começa a contar o tempo de estudo nesta matéria
 
     var links = JSON.parse(JSON.stringify(l.links || []));
     var postits = JSON.parse(JSON.stringify(l.postits || []));
@@ -1000,6 +1039,78 @@
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // ===== PERFIL / PROGRESSO ===============================================
+  function renderProfile() {
+    var u = Auth.currentUser();
+    var st = Store.studyStats();
+
+    var back = el('<div class="back-link">← Matérias</div>');
+    back.addEventListener('click', function () { go('home'); });
+    root.appendChild(back);
+
+    root.appendChild(el(
+      '<div class="page-head">' +
+        '<div class="ph-icon" style="background:var(--primary)">👤</div>' +
+        '<div><h2>' + esc(u ? u.name : 'Meu progresso') + '</h2>' +
+          '<div class="ph-sub">Seu progresso e tempo de estudo</div></div>' +
+      '</div>'
+    ));
+
+    // cartões de tempo
+    root.appendChild(el('<div class="section-title">Tempo de estudo</div>'));
+    root.appendChild(el(
+      '<div class="stat-grid">' +
+        statCard('Hoje', fmtDur(st.today), '📅') +
+        statCard('Esta semana', fmtDur(st.week), '🗓️') +
+        statCard('Este mês', fmtDur(st.month), '📆') +
+        statCard('Total', fmtDur(st.total), '⏱️') +
+      '</div>'
+    ));
+
+    // gráfico dos últimos 7 dias
+    var maxSec = Math.max.apply(null, st.perDay.map(function (d) { return d.seconds; }).concat([1]));
+    var bars = st.perDay.map(function (d) {
+      var h = maxSec ? Math.round((d.seconds / maxSec) * 100) : 0;
+      var isToday = d.date === st.perDay[st.perDay.length - 1].date;
+      return '<div class="bar-col">' +
+        '<div class="bar-val">' + (d.seconds ? fmtDur(d.seconds) : '') + '</div>' +
+        '<div class="bar-track"><div class="bar-fill' + (isToday ? ' today' : '') + '" style="height:' + Math.max(h, d.seconds ? 6 : 0) + '%"></div></div>' +
+        '<div class="bar-lbl">' + d.label + '</div>' +
+      '</div>';
+    }).join('');
+    root.appendChild(el('<div class="section-title" style="margin-top:22px">Últimos 7 dias</div>'));
+    root.appendChild(el('<div class="week-chart">' + bars + '</div>'));
+
+    // por matéria
+    root.appendChild(el('<div class="section-title" style="margin-top:22px">Progresso por matéria</div>'));
+    if (!st.perSubject.length) {
+      root.appendChild(el('<div class="empty-state"><p>Nenhuma matéria ainda.</p></div>'));
+      return;
+    }
+    var list = el('<div class="subj-stats"></div>');
+    st.perSubject.forEach(function (s) {
+      var row = el(
+        '<div class="subj-stat">' +
+          '<div class="ss-emoji" style="background:' + hexA(s.color, 0.14) + '">' + s.emoji + '</div>' +
+          '<div class="ss-main">' +
+            '<div class="ss-top"><span class="ss-name">' + esc(s.name) + '</span>' +
+              '<span class="ss-hours">⏱️ ' + fmtDur(s.seconds) + '</span></div>' +
+            '<div class="ss-prog"><div class="progress"><span style="width:' + s.pct + '%;background:' + s.color + '"></span></div>' +
+              '<span class="progress-label">' + s.pct + '% · ' + s.done + '/' + s.total + ' aulas</span></div>' +
+          '</div>' +
+        '</div>'
+      );
+      row.addEventListener('click', function () { go('subject', { subjectId: s.id }); });
+      list.appendChild(row);
+    });
+    root.appendChild(list);
+  }
+
+  function statCard(label, value, icon) {
+    return '<div class="stat-card"><div class="stat-icon">' + icon + '</div>' +
+      '<div class="stat-value">' + esc(value) + '</div><div class="stat-label">' + esc(label) + '</div></div>';
+  }
+
   // ===== MODAIS ============================================================
   function openSubjectModal() {
     var selColor = SUBJECT_COLORS[0], selEmoji = SUBJECT_EMOJIS[0];
@@ -1241,12 +1352,16 @@
 
   // ===== botões do topo + início ==========================================
   document.getElementById('homeBtn').addEventListener('click', function () { go('home'); });
+  document.getElementById('profileBtn').addEventListener('click', function () { go('profile'); });
   document.getElementById('importContentBtn').addEventListener('click', function () { go('import', { subjectId: null }); });
   document.getElementById('aiBtn').addEventListener('click', openAIModal);
   document.getElementById('exportBtn').addEventListener('click', exportBackup);
   document.getElementById('importBtn').addEventListener('click', importBackup);
   document.getElementById('logoutBtn').addEventListener('click', function () {
-    confirmModal('Sair da conta?', 'Seus estudos continuam salvos.', function () { Auth.logout(); showLogin(); });
+    confirmModal('Sair da conta?', 'Seus estudos continuam salvos.', function () {
+      studyStop(); // salva o tempo antes de trocar de usuário
+      Auth.logout(); showLogin();
+    });
   });
 
   function showApp() {

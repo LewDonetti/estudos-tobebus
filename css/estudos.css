@@ -216,6 +216,32 @@ body {
 }
 .block-label { font-size: 0.78rem; font-weight: 700; color: var(--ink-2); margin: 20px 0 8px; display: flex; align-items: center; gap: 6px; }
 
+/* ---------- Perfil / progresso ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+.stat-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow-sm); }
+.stat-icon { font-size: 1.3rem; margin-bottom: 8px; }
+.stat-value { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.01em; }
+.stat-label { font-size: 0.78rem; color: var(--ink-3); font-weight: 600; margin-top: 2px; }
+
+.week-chart { display: flex; align-items: flex-end; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 14px 12px; box-shadow: var(--shadow-sm); }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.bar-val { font-size: 0.66rem; color: var(--ink-3); font-weight: 600; height: 14px; white-space: nowrap; }
+.bar-track { width: 100%; max-width: 46px; height: 130px; background: var(--surface-2); border-radius: 8px; display: flex; align-items: flex-end; overflow: hidden; }
+.bar-fill { width: 100%; background: var(--primary-soft); border-radius: 8px 8px 0 0; transition: height 0.4s ease; min-height: 0; }
+.bar-fill.today { background: var(--primary); }
+.bar-lbl { font-size: 0.72rem; color: var(--ink-3); font-weight: 600; }
+
+.subj-stats { display: flex; flex-direction: column; gap: 10px; }
+.subj-stat { display: flex; align-items: center; gap: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; transition: box-shadow 0.15s ease; }
+.subj-stat:hover { box-shadow: var(--shadow-sm); }
+.ss-emoji { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+.ss-main { flex: 1; min-width: 0; }
+.ss-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.ss-name { font-weight: 700; }
+.ss-hours { font-size: 0.82rem; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+.ss-prog { display: flex; align-items: center; gap: 10px; }
+.ss-prog .progress { flex: 1; }
+
 /* ---------- Modo caderno (anotar durante o vídeo) ---------- */
 .note-mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .nm-hint { font-size: 0.78rem; color: var(--ink-3); }

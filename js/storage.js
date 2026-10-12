@@ -26,7 +26,7 @@
     return new Date().toISOString();
   }
   function emptyDB() {
-    return { version: 2, subjects: [], modules: [], lessons: [], quizzes: [], recalls: [] };
+    return { version: 2, subjects: [], modules: [], lessons: [], quizzes: [], recalls: [], studyLog: [] };
   }
 
   function load() {
@@ -34,7 +34,7 @@
       var raw = global.localStorage.getItem(storageKey());
       if (!raw) return seedDefaults();
       var d = JSON.parse(raw);
-      ['subjects', 'modules', 'lessons', 'quizzes', 'recalls'].forEach(function (k) {
+      ['subjects', 'modules', 'lessons', 'quizzes', 'recalls', 'studyLog'].forEach(function (k) {
         if (!d[k]) d[k] = [];
       });
       return d;
@@ -237,6 +237,64 @@
       return r;
     },
 
+    // ---------- Tempo de estudo ----------
+    // Acumula segundos estudados numa matéria, agregando por dia.
+    addStudyTime: function (subjectId, seconds) {
+      if (!subjectId || !seconds || seconds < 1) return;
+      var d = load();
+      var day = localDay(new Date());
+      var entry = d.studyLog.filter(function (e) {
+        return e.subjectId === subjectId && e.date === day;
+      })[0];
+      if (entry) entry.seconds += Math.round(seconds);
+      else d.studyLog.push({ subjectId: subjectId, date: day, seconds: Math.round(seconds) });
+      save(d);
+    },
+
+    // Estatísticas para a tela de perfil.
+    studyStats: function () {
+      var d = load();
+      var now = new Date();
+      var todayStr = localDay(now);
+      var monday = new Date(now); var dow = (now.getDay() + 6) % 7; // 0 = segunda
+      monday.setDate(now.getDate() - dow);
+      var weekStr = localDay(monday);
+      var monthStr = localDay(now).slice(0, 7); // 'YYYY-MM'
+
+      var today = 0, week = 0, month = 0, total = 0;
+      var bySubject = {};
+      d.studyLog.forEach(function (e) {
+        total += e.seconds;
+        if (e.date === todayStr) today += e.seconds;
+        if (e.date >= weekStr) week += e.seconds;
+        if (e.date.slice(0, 7) === monthStr) month += e.seconds;
+        bySubject[e.subjectId] = (bySubject[e.subjectId] || 0) + e.seconds;
+      });
+
+      // últimos 7 dias (segunda..hoje em ordem cronológica)
+      var perDay = [];
+      for (var i = 6; i >= 0; i--) {
+        var dd = new Date(now); dd.setDate(now.getDate() - i);
+        var ds = localDay(dd);
+        var sum = 0;
+        d.studyLog.forEach(function (e) { if (e.date === ds) sum += e.seconds; });
+        perDay.push({ date: ds, seconds: sum, label: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][dd.getDay()] });
+      }
+
+      var self = this;
+      var perSubject = d.subjects.map(function (s) {
+        var pr = self.subjectProgress(s.id);
+        return {
+          id: s.id, name: s.name, color: s.color, emoji: s.emoji,
+          seconds: bySubject[s.id] || 0,
+          done: pr.done, total: pr.total,
+          pct: pr.total ? Math.round((pr.done / pr.total) * 100) : 0
+        };
+      }).sort(function (a, b) { return b.seconds - a.seconds; });
+
+      return { today: today, week: week, month: month, total: total, perDay: perDay, perSubject: perSubject };
+    },
+
     // ---------- Backup ----------
     exportJSON: function () {
       return JSON.stringify(load(), null, 2);
@@ -244,7 +302,7 @@
     importJSON: function (jsonString) {
       var d = JSON.parse(jsonString);
       if (!d.subjects) throw new Error('Arquivo inválido.');
-      ['modules', 'lessons', 'quizzes', 'recalls'].forEach(function (k) { if (!d[k]) d[k] = []; });
+      ['modules', 'lessons', 'quizzes', 'recalls', 'studyLog'].forEach(function (k) { if (!d[k]) d[k] = []; });
       d.version = 2;
       save(d);
       return d;
@@ -253,6 +311,12 @@
 
   function norm(s) {
     return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  }
+
+  // Data local no formato YYYY-MM-DD (sem fuso UTC atrapalhar).
+  function localDay(dt) {
+    var y = dt.getFullYear(), m = ('0' + (dt.getMonth() + 1)).slice(-2), d = ('0' + dt.getDate()).slice(-2);
+    return y + '-' + m + '-' + d;
   }
 
   global.Store = Store;
