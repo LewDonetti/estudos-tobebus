@@ -171,13 +171,17 @@
       }
     }
 
-    // limpeza final: remove módulos vazios e matérias sem conteúdo
+    // limpeza final: extrai vídeos/links e remove módulos vazios
     subjects.forEach(function (s) {
-      s.modules = s.modules.filter(function (m) {
-        m.content = m.content.replace(/\n{3,}/g, '\n\n').trim();
-        return m.content.length > 0;
+      s.modules.forEach(function (m) {
+        var media = extractMedia(m.content);
+        m.videos = media.videos;
+        m.links = media.links;
+        m.content = media.text.replace(/\n{3,}/g, '\n\n').trim();
       });
-      // se a matéria ficou com 1 módulo genérico, dá um título melhor
+      s.modules = s.modules.filter(function (m) {
+        return m.content.length > 0 || m.videos.length > 0 || m.links.length > 0;
+      });
       if (s.modules.length === 1 && /^m[oó]dulo\s*1?$/i.test(s.modules[0].title)) {
         s.modules[0].title = 'Módulo 1';
       }
@@ -187,6 +191,25 @@
     });
 
     return { subjects: subjects };
+  }
+
+  var YOUTUBE_RE = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?[^\s]*v=[\w-]+|youtu\.be\/[\w-]+|youtube\.com\/embed\/[\w-]+)/i;
+
+  // Separa URLs do texto: YouTube → vídeos; demais → links de apoio.
+  function extractMedia(content) {
+    var videos = [];
+    var links = [];
+    var urlRe = /(https?:\/\/[^\s)]+)|(www\.[^\s)]+)/gi;
+    var text = (content || '').replace(urlRe, function (url) {
+      var full = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+      if (YOUTUBE_RE.test(full)) {
+        videos.push({ url: full, title: '' });
+      } else {
+        links.push({ url: full, title: '' });
+      }
+      return ''; // tira a URL do texto corrido
+    });
+    return { videos: videos, links: links, text: text };
   }
 
   global.Importer = {

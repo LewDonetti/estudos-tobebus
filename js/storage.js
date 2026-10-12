@@ -1,308 +1,259 @@
 /* =========================================================================
- * storage.js — Camada de dados do Caderno de Estudos
+ * storage.js — Dados da plataforma (estilo curso: matéria → módulo → aula)
  *
- * Guarda tudo no navegador (localStorage) para que nada se perca ao
- * fechar e reabrir. Também permite exportar/importar um arquivo de backup,
- * para que ela nunca perca o conteúdo de verdade.
+ * Hierarquia:
+ *   Matéria (subject)  →  Módulos (module)  →  Aulas (lesson)
+ *   - Aula pode ser de VÍDEO (link do YouTube) ou de CONTEÚDO (texto),
+ *     com links de apoio e marcação de concluída.
+ *   - Cada módulo tem questionário e revisão ("você se lembra?").
  *
- * Arquitetado de forma limpa para que, numa próxima fase, seja fácil
- * trocar por um banco de dados real na nuvem (só reimplementar os métodos
- * de leitura/escrita abaixo).
+ * Tudo salvo no navegador, SEPARADO POR USUÁRIO (cada conta vê só o seu).
+ * Pronto para, numa próxima fase, ser trocado por um banco na nuvem.
  * ========================================================================= */
 
 (function (global) {
   'use strict';
 
-  // Chave de armazenamento POR USUÁRIO (cada pessoa vê só os dados dela).
   function storageKey() {
     var user = global.Auth && global.Auth.currentUser && global.Auth.currentUser();
-    return 'cadernoEstudos:v1:' + (user ? user.id : 'anon');
+    return 'cadernoEstudos:v2:' + (user ? user.id : 'anon');
   }
-
-  // ----- Utilidades -------------------------------------------------------
 
   function uid() {
-    return (
-      Date.now().toString(36) +
-      '-' +
-      Math.random().toString(36).slice(2, 8)
-    );
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
   }
-
   function now() {
     return new Date().toISOString();
   }
-
   function emptyDB() {
-    return { version: 1, subjects: [], sessions: [], recalls: [], quizzes: [] };
+    return { version: 2, subjects: [], modules: [], lessons: [], quizzes: [], recalls: [] };
   }
-
-  // ----- Leitura / escrita bruta -----------------------------------------
 
   function load() {
     try {
       var raw = global.localStorage.getItem(storageKey());
       if (!raw) return seedDefaults();
-      var data = JSON.parse(raw);
-      // garante que todas as coleções existam
-      if (!data.subjects) data.subjects = [];
-      if (!data.sessions) data.sessions = [];
-      if (!data.recalls) data.recalls = [];
-      if (!data.quizzes) data.quizzes = [];
-      return data;
+      var d = JSON.parse(raw);
+      ['subjects', 'modules', 'lessons', 'quizzes', 'recalls'].forEach(function (k) {
+        if (!d[k]) d[k] = [];
+      });
+      return d;
     } catch (e) {
-      console.warn('Não consegui ler os dados salvos, começando limpo.', e);
       return seedDefaults();
     }
   }
 
-  function save(data) {
+  function save(d) {
     try {
-      global.localStorage.setItem(storageKey(), JSON.stringify(data));
+      global.localStorage.setItem(storageKey(), JSON.stringify(d));
       return true;
     } catch (e) {
-      console.error('Não consegui salvar os dados.', e);
       return false;
     }
   }
 
-  // ----- Matérias comuns de concurso (só na primeira vez) ----------------
-
   function seedDefaults() {
-    var db = emptyDB();
-    var seeds = [
-      { name: 'Português', color: '#ff7eb6', emoji: '📖' },
-      { name: 'Matemática', color: '#7eb6ff', emoji: '🔢' },
-      { name: 'Raciocínio Lógico', color: '#b57edc', emoji: '🧩' },
-      { name: 'Direito Constitucional', color: '#ffb570', emoji: '⚖️' },
-      { name: 'Direito Administrativo', color: '#70d6a3', emoji: '🏛️' },
-      { name: 'Informática', color: '#70d9ff', emoji: '💻' },
-      { name: 'Atualidades', color: '#ff9eb5', emoji: '🌍' }
-    ];
-    seeds.forEach(function (s) {
-      db.subjects.push({
-        id: uid(),
-        name: s.name,
-        color: s.color,
-        emoji: s.emoji,
-        createdAt: now()
-      });
+    var d = emptyDB();
+    [
+      { name: 'Português', color: '#6d5bd0', emoji: '📖' },
+      { name: 'Matemática', color: '#2f80ed', emoji: '🔢' },
+      { name: 'Raciocínio Lógico', color: '#8e5bc9', emoji: '🧩' },
+      { name: 'Direito Constitucional', color: '#e2902b', emoji: '⚖️' },
+      { name: 'Informática', color: '#2aa79b', emoji: '💻' }
+    ].forEach(function (s) {
+      d.subjects.push({ id: uid(), name: s.name, color: s.color, emoji: s.emoji, createdAt: now() });
     });
-    save(db);
-    return db;
+    save(d);
+    return d;
   }
 
-  // ----- API pública ------------------------------------------------------
+  function byOrder(a, b) {
+    return (a.order || 0) - (b.order || 0) || (a.createdAt || '').localeCompare(b.createdAt || '');
+  }
 
   var Store = {
     uid: uid,
 
-    // --- Matérias ---
+    // ---------- Matérias ----------
     getSubjects: function () {
       return load().subjects.slice();
     },
-
     getSubject: function (id) {
-      return load().subjects.filter(function (s) {
-        return s.id === id;
-      })[0] || null;
+      return load().subjects.filter(function (s) { return s.id === id; })[0] || null;
     },
-
-    // Procura matéria por nome (ignora acentos e maiúsculas).
     findSubjectByName: function (name) {
-      var norm = (name || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .trim();
-      return load().subjects.filter(function (s) {
-        return (
-          s.name
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[̀-ͯ]/g, '')
-            .trim() === norm
-        );
-      })[0] || null;
+      var n = norm(name);
+      return load().subjects.filter(function (s) { return norm(s.name) === n; })[0] || null;
     },
-
     addSubject: function (name, color, emoji) {
-      var db = load();
-      var subject = {
-        id: uid(),
-        name: (name || 'Nova matéria').trim(),
-        color: color || '#ff7eb6',
-        emoji: emoji || '📚',
-        createdAt: now()
-      };
-      db.subjects.push(subject);
-      save(db);
-      return subject;
+      var d = load();
+      var s = { id: uid(), name: (name || 'Nova matéria').trim(), color: color || '#6d5bd0', emoji: emoji || '📚', createdAt: now() };
+      d.subjects.push(s);
+      save(d);
+      return s;
     },
-
     updateSubject: function (id, patch) {
-      var db = load();
-      db.subjects.forEach(function (s) {
-        if (s.id === id) Object.assign(s, patch);
-      });
-      save(db);
+      var d = load();
+      d.subjects.forEach(function (s) { if (s.id === id) Object.assign(s, patch); });
+      save(d);
     },
-
     deleteSubject: function (id) {
-      var db = load();
-      db.subjects = db.subjects.filter(function (s) {
-        return s.id !== id;
-      });
-      // remove também os cadernos e recalls daquela matéria
-      db.sessions = db.sessions.filter(function (x) {
-        return x.subjectId !== id;
-      });
-      db.recalls = db.recalls.filter(function (x) {
-        return x.subjectId !== id;
-      });
-      save(db);
+      var d = load();
+      var mods = d.modules.filter(function (m) { return m.subjectId === id; }).map(function (m) { return m.id; });
+      d.subjects = d.subjects.filter(function (s) { return s.id !== id; });
+      d.modules = d.modules.filter(function (m) { return m.subjectId !== id; });
+      d.lessons = d.lessons.filter(function (l) { return l.subjectId !== id; });
+      d.quizzes = d.quizzes.filter(function (q) { return q.subjectId !== id; });
+      d.recalls = d.recalls.filter(function (r) { return r.subjectId !== id; });
+      void mods;
+      save(d);
     },
 
-    // --- Cadernos / sessões de estudo ---
-    getSessions: function (subjectId) {
-      var sessions = load().sessions.filter(function (x) {
-        return x.subjectId === subjectId;
-      });
-      // mais recentes primeiro
-      sessions.sort(function (a, b) {
-        return (b.createdAt || '').localeCompare(a.createdAt || '');
-      });
-      return sessions;
+    // ---------- Módulos ----------
+    getModules: function (subjectId) {
+      return load().modules.filter(function (m) { return m.subjectId === subjectId; }).sort(byOrder);
+    },
+    getModule: function (id) {
+      return load().modules.filter(function (m) { return m.id === id; })[0] || null;
+    },
+    addModule: function (subjectId, title) {
+      var d = load();
+      var order = d.modules.filter(function (m) { return m.subjectId === subjectId; }).length;
+      var m = { id: uid(), subjectId: subjectId, title: (title || 'Módulo ' + (order + 1)).trim(), order: order, createdAt: now() };
+      d.modules.push(m);
+      save(d);
+      return m;
+    },
+    updateModule: function (id, patch) {
+      var d = load();
+      d.modules.forEach(function (m) { if (m.id === id) Object.assign(m, patch); });
+      save(d);
+    },
+    deleteModule: function (id) {
+      var d = load();
+      d.modules = d.modules.filter(function (m) { return m.id !== id; });
+      d.lessons = d.lessons.filter(function (l) { return l.moduleId !== id; });
+      d.quizzes = d.quizzes.filter(function (q) { return q.moduleId !== id; });
+      d.recalls = d.recalls.filter(function (r) { return r.moduleId !== id; });
+      save(d);
     },
 
-    getSession: function (id) {
-      return load().sessions.filter(function (x) {
-        return x.id === id;
-      })[0] || null;
+    // ---------- Aulas ----------
+    getLessons: function (moduleId) {
+      return load().lessons.filter(function (l) { return l.moduleId === moduleId; }).sort(byOrder);
     },
-
-    // A última (mais recente) sessão de uma matéria
-    getLastSession: function (subjectId) {
-      return this.getSessions(subjectId)[0] || null;
+    getLesson: function (id) {
+      return load().lessons.filter(function (l) { return l.id === id; })[0] || null;
     },
-
-    addSession: function (subjectId, data) {
-      var db = load();
-      var count = db.sessions.filter(function (x) {
-        return x.subjectId === subjectId;
-      }).length;
-      var session = {
+    addLesson: function (moduleId, data) {
+      var d = load();
+      var mod = d.modules.filter(function (m) { return m.id === moduleId; })[0];
+      if (!mod) return null;
+      var order = d.lessons.filter(function (l) { return l.moduleId === moduleId; }).length;
+      var l = {
         id: uid(),
-        subjectId: subjectId,
-        module: count + 1,
-        title: (data && data.title) || 'Módulo ' + (count + 1),
+        moduleId: moduleId,
+        subjectId: mod.subjectId,
+        title: (data && data.title) || 'Nova aula',
+        type: (data && data.type) || 'texto', // 'video' | 'texto'
+        videoUrl: (data && data.videoUrl) || '',
         content: (data && data.content) || '',
+        links: (data && data.links) || [],
         postits: (data && data.postits) || [],
+        done: false,
+        order: order,
         createdAt: now(),
         updatedAt: now()
       };
-      db.sessions.push(session);
-      save(db);
-      return session;
+      d.lessons.push(l);
+      save(d);
+      return l;
+    },
+    updateLesson: function (id, patch) {
+      var d = load();
+      d.lessons.forEach(function (l) { if (l.id === id) { Object.assign(l, patch); l.updatedAt = now(); } });
+      save(d);
+    },
+    toggleLessonDone: function (id) {
+      var d = load();
+      d.lessons.forEach(function (l) { if (l.id === id) l.done = !l.done; });
+      save(d);
+    },
+    deleteLesson: function (id) {
+      var d = load();
+      d.lessons = d.lessons.filter(function (l) { return l.id !== id; });
+      save(d);
     },
 
-    updateSession: function (id, patch) {
-      var db = load();
-      db.sessions.forEach(function (x) {
-        if (x.id === id) {
-          Object.assign(x, patch);
-          x.updatedAt = now();
-        }
-      });
-      save(db);
+    // ---------- Progresso ----------
+    moduleProgress: function (moduleId) {
+      var ls = this.getLessons(moduleId);
+      return { done: ls.filter(function (l) { return l.done; }).length, total: ls.length };
+    },
+    subjectProgress: function (subjectId) {
+      var ls = load().lessons.filter(function (l) { return l.subjectId === subjectId; });
+      return { done: ls.filter(function (l) { return l.done; }).length, total: ls.length };
+    },
+    // Junta o conteúdo (texto) de um módulo, para questionário/revisão.
+    moduleContent: function (moduleId) {
+      return this.getLessons(moduleId)
+        .map(function (l) { return (l.title || '') + '\n' + (l.content || ''); })
+        .join('\n\n')
+        .trim();
+    },
+    subjectContent: function (subjectId) {
+      var self = this;
+      return self.getModules(subjectId)
+        .map(function (m) { return self.moduleContent(m.id); })
+        .join('\n\n')
+        .trim();
     },
 
-    deleteSession: function (id) {
-      var db = load();
-      db.sessions = db.sessions.filter(function (x) {
-        return x.id !== id;
-      });
-      save(db);
-    },
-
-    // --- Tentativas de recordação ("Você se lembra?") ---
-    getRecalls: function (subjectId) {
-      var recalls = load().recalls.filter(function (x) {
-        return x.subjectId === subjectId;
-      });
-      recalls.sort(function (a, b) {
-        return (b.createdAt || '').localeCompare(a.createdAt || '');
-      });
-      return recalls;
-    },
-
-    addRecall: function (data) {
-      var db = load();
-      var recall = {
-        id: uid(),
-        subjectId: data.subjectId,
-        sessionId: data.sessionId,
-        text: data.text || '',
-        score: data.score || 0,
-        matched: data.matched || [],
-        missed: data.missed || [],
-        createdAt: now()
-      };
-      db.recalls.push(recall);
-      save(db);
-      return recall;
-    },
-
-    // --- Resultados de questionários ---
-    getQuizzes: function (subjectId) {
-      var quizzes = load().quizzes.filter(function (x) {
-        return x.subjectId === subjectId;
-      });
-      quizzes.sort(function (a, b) {
-        return (b.createdAt || '').localeCompare(a.createdAt || '');
-      });
-      return quizzes;
-    },
-
+    // ---------- Questionários / Revisão ----------
     addQuiz: function (data) {
-      var db = load();
-      var quiz = {
-        id: uid(),
-        subjectId: data.subjectId,
-        sessionId: data.sessionId || null,
-        scope: data.scope || 'modulo', // 'modulo' ou 'materia'
-        score: data.score || 0,
-        total: data.total || 0,
-        correct: data.correct || 0,
-        createdAt: now()
+      var d = load();
+      var q = {
+        id: uid(), subjectId: data.subjectId, moduleId: data.moduleId || null,
+        scope: data.scope || 'modulo', score: data.score || 0, total: data.total || 0,
+        correct: data.correct || 0, createdAt: now()
       };
-      db.quizzes.push(quiz);
-      save(db);
-      return quiz;
+      d.quizzes.push(q);
+      save(d);
+      return q;
+    },
+    getQuizzes: function (moduleId) {
+      return load().quizzes.filter(function (q) { return q.moduleId === moduleId; })
+        .sort(function (a, b) { return (b.createdAt || '').localeCompare(a.createdAt || ''); });
+    },
+    addRecall: function (data) {
+      var d = load();
+      var r = {
+        id: uid(), subjectId: data.subjectId, moduleId: data.moduleId || null,
+        text: data.text || '', score: data.score || 0,
+        matched: data.matched || [], missed: data.missed || [], createdAt: now()
+      };
+      d.recalls.push(r);
+      save(d);
+      return r;
     },
 
-    // --- Backup (para nunca perder nada de verdade) ---
+    // ---------- Backup ----------
     exportJSON: function () {
       return JSON.stringify(load(), null, 2);
     },
-
     importJSON: function (jsonString) {
-      var data = JSON.parse(jsonString);
-      if (!data.subjects || !data.sessions) {
-        throw new Error('Arquivo de backup inválido.');
-      }
-      if (!data.recalls) data.recalls = [];
-      if (!data.quizzes) data.quizzes = [];
-      if (!data.version) data.version = 1;
-      save(data);
-      return data;
-    },
-
-    // Zera tudo (usado só com confirmação)
-    resetAll: function () {
-      save(emptyDB());
+      var d = JSON.parse(jsonString);
+      if (!d.subjects) throw new Error('Arquivo inválido.');
+      ['modules', 'lessons', 'quizzes', 'recalls'].forEach(function (k) { if (!d[k]) d[k] = []; });
+      d.version = 2;
+      save(d);
+      return d;
     }
   };
+
+  function norm(s) {
+    return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  }
 
   global.Store = Store;
 })(window);
