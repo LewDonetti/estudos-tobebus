@@ -1294,52 +1294,79 @@
   }
 
   // ===== LOGIN =============================================================
+  // ===== CONTA / SESSÃO (local ou nuvem) ==================================
+  var cloudReady = false;      // true só após Cloud.init() com sucesso
+  var accountName = '';        // nome exibido no topo
+  var lastSyncAt = null;       // updated_at da última sincronização
+
+  function debounce(fn, ms) {
+    var t = null;
+    return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+  }
+
   function renderLogin() {
+    clearNoteMode(); clearPlayer(); studyStop();
     root.innerHTML = '';
-    var mode = Auth.userCount() === 0 ? 'register' : 'login';
+    var cloud = cloudReady;
+    var mode = (!cloud && Auth.userCount() === 0) ? 'register' : 'login';
     var card = el(
       '<div class="auth-screen"><div class="auth-card">' +
         '<div class="auth-logo">📚</div><h1>Cantinho de Estudos</h1>' +
-        '<p class="auth-sub">Entre para acessar seus estudos</p>' +
+        '<p class="auth-sub">Entre para acessar seus estudos' + (cloud ? ' de qualquer lugar' : '') + '</p>' +
         '<div class="auth-tabs"><button class="auth-tab" data-tab="login">Entrar</button>' +
         '<button class="auth-tab" data-tab="register">Criar conta</button></div>' +
         '<div id="authForm"></div></div>' +
-        '<div class="auth-foot">Sua plataforma de estudos pessoal.</div></div>'
+        '<div class="auth-foot">' + (cloud ? '🔒 Seus dados ficam salvos na nuvem.' : 'Sua plataforma de estudos pessoal.') + '</div></div>'
     );
     root.appendChild(card);
     var formBox = card.querySelector('#authForm');
     function setTab(m) { mode = m; card.querySelectorAll('.auth-tab').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === m); }); drawForm(); }
     card.querySelectorAll('.auth-tab').forEach(function (b) { b.addEventListener('click', function () { setTab(b.getAttribute('data-tab')); }); });
+
+    var idLabel = cloud ? 'E-mail' : 'Usuário';
+    var idPlaceholder = cloud ? 'seu@email.com' : 'ex: maria';
+
     function drawForm() {
       if (mode === 'register') {
         formBox.innerHTML =
           '<div class="field"><label>Seu nome</label><input type="text" id="rgName" placeholder="Como quer ser chamada(o)?" /></div>' +
-          '<div class="field"><label>Usuário</label><input type="text" id="rgUser" placeholder="ex: maria" autocapitalize="none" /></div>' +
+          '<div class="field"><label>' + idLabel + '</label><input type="text" id="rgUser" placeholder="' + idPlaceholder + '" autocapitalize="none" /></div>' +
           '<div class="field"><label>Senha</label><input type="password" id="rgPass" placeholder="crie uma senha" /></div>' +
           '<div class="field"><label>Confirmar senha</label><input type="password" id="rgPass2" placeholder="repita a senha" /></div>' +
           '<button class="btn block" id="rgBtn">Criar conta</button>';
         var rg = formBox.querySelector('#rgBtn');
         function doReg() {
+          var name = formBox.querySelector('#rgName').value;
+          var idv = formBox.querySelector('#rgUser').value;
           var p = formBox.querySelector('#rgPass').value, p2 = formBox.querySelector('#rgPass2').value;
           if (p !== p2) { toast('As senhas não bateram.'); return; }
+          if (cloud && p.length < 6) { toast('A senha precisa de ao menos 6 caracteres.'); return; }
           rg.disabled = true; rg.textContent = 'Criando...';
-          Auth.register(formBox.querySelector('#rgName').value, formBox.querySelector('#rgUser').value, p)
-            .then(function () { toast('Conta criada. Bem-vinda(o)!'); showApp(); })
-            .catch(function (e) { toast(e.message || 'Erro'); rg.disabled = false; rg.textContent = 'Criar conta'; });
+          var op = cloud ? Cloud.signUp(name, idv.trim(), p) : Auth.register(name, idv, p);
+          op.then(function (acct) { onLoggedIn(cloud ? acct : Auth.currentUser()); })
+            .catch(function (e) {
+              if (e && e.code === 'CONFIRM') {
+                toast('Conta criada! Confirme pelo e-mail e depois entre.');
+                setTab('login'); return;
+              }
+              toast(e.message || 'Erro'); rg.disabled = false; rg.textContent = 'Criar conta';
+            });
         }
         rg.addEventListener('click', doReg);
         formBox.querySelector('#rgPass2').addEventListener('keydown', function (e) { if (e.key === 'Enter') doReg(); });
         formBox.querySelector('#rgName').focus();
       } else {
         formBox.innerHTML =
-          '<div class="field"><label>Usuário</label><input type="text" id="lgUser" placeholder="seu usuário" autocapitalize="none" /></div>' +
+          '<div class="field"><label>' + idLabel + '</label><input type="text" id="lgUser" placeholder="' + idPlaceholder + '" autocapitalize="none" /></div>' +
           '<div class="field"><label>Senha</label><input type="password" id="lgPass" placeholder="sua senha" /></div>' +
           '<button class="btn block" id="lgBtn">Entrar</button>';
         var lg = formBox.querySelector('#lgBtn');
         function doLogin() {
+          var idv = formBox.querySelector('#lgUser').value;
+          var p = formBox.querySelector('#lgPass').value;
           lg.disabled = true; lg.textContent = 'Entrando...';
-          Auth.login(formBox.querySelector('#lgUser').value, formBox.querySelector('#lgPass').value)
-            .then(function () { showApp(); })
+          var op = cloud ? Cloud.signIn(idv.trim(), p) : Auth.login(idv, p);
+          op.then(function (acct) { onLoggedIn(cloud ? acct : Auth.currentUser()); })
             .catch(function (e) { toast(e.message || 'Erro'); lg.disabled = false; lg.textContent = 'Entrar'; });
         }
         lg.addEventListener('click', doLogin);
@@ -1348,6 +1375,47 @@
       }
     }
     setTab(mode);
+  }
+
+  // ----- sincronização com a nuvem ---------------------------------------
+  function pushNow() {
+    if (!cloudReady) return Promise.resolve();
+    return Cloud.push(Store.snapshot()).then(function (ts) { if (ts) lastSyncAt = ts; }).catch(function () {});
+  }
+  var pushDebounced = debounce(function () { pushNow(); }, 1200);
+
+  function enableAutoPush() {
+    window.__onStoreSaved = function () { pushDebounced(); };
+  }
+  function syncPull() {
+    return Cloud.pull().then(function (row) {
+      if (row && row.data) {
+        Store.writeRaw(row.data);
+        lastSyncAt = row.updated_at || null;
+      } else {
+        return pushNow(); // nuvem vazia → envia o que há local (seed)
+      }
+    });
+  }
+
+  function showBootLoading(msg) {
+    document.getElementById('topbar').classList.add('hidden');
+    root.innerHTML = '<div class="auth-screen"><div style="text-align:center"><div class="spinner"></div>' +
+      '<p style="margin-top:14px;color:var(--ink-2)">' + esc(msg || 'Carregando...') + '</p></div></div>';
+  }
+
+  function onLoggedIn(acct) {
+    if (!acct) { showLogin(); return; }
+    window.__userId = acct.id;
+    accountName = acct.name || 'Você';
+    if (cloudReady) {
+      enableAutoPush();
+      showBootLoading('Carregando seus dados...');
+      syncPull().then(function () { showApp(); })
+        .catch(function () { toast('Não consegui buscar da nuvem; usando dados locais.'); showApp(); });
+    } else {
+      showApp();
+    }
   }
 
   // ===== botões do topo + início ==========================================
@@ -1359,18 +1427,45 @@
   document.getElementById('importBtn').addEventListener('click', importBackup);
   document.getElementById('logoutBtn').addEventListener('click', function () {
     confirmModal('Sair da conta?', 'Seus estudos continuam salvos.', function () {
-      studyStop(); // salva o tempo antes de trocar de usuário
-      Auth.logout(); showLogin();
+      studyStop();
+      if (cloudReady) { pushNow().then(function () { return Cloud.signOut(); }).then(done).catch(done); }
+      else { Auth.logout(); done(); }
+      function done() { window.__userId = null; window.__onStoreSaved = null; showLogin(); }
     });
+  });
+
+  // sincroniza da nuvem ao voltar o foco (fora das telas de edição)
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !cloudReady || !Cloud.account()) return;
+    if (['lesson', 'quiz', 'recall', 'import'].indexOf(state.view) !== -1) return;
+    Cloud.pull().then(function (row) {
+      if (row && row.updated_at && row.updated_at !== lastSyncAt) {
+        Store.writeRaw(row.data); lastSyncAt = row.updated_at; render();
+      }
+    }).catch(function () {});
   });
 
   function showApp() {
     document.getElementById('topbar').classList.remove('hidden');
-    var u = Auth.currentUser(); var chip = document.getElementById('userChip');
-    if (chip && u) chip.textContent = u.name;
+    var chip = document.getElementById('userChip');
+    if (chip) chip.textContent = accountName || (currentAccount() ? currentAccount().name : '');
     updateAIBadge(); go('home');
   }
   function showLogin() { document.getElementById('topbar').classList.add('hidden'); renderLogin(); }
+  function currentAccount() { return cloudReady ? Cloud.account() : Auth.currentUser(); }
 
-  if (Auth.isLoggedIn()) showApp(); else showLogin();
+  // ----- início -----
+  if (Cloud.enabled()) {
+    showBootLoading('Conectando...');
+    Cloud.init().then(function (acct) {
+      cloudReady = true;
+      if (acct) onLoggedIn(acct); else showLogin();
+    }).catch(function (e) {
+      toast('Nuvem indisponível (' + (e.message || 'erro') + '). Usando modo local.');
+      cloudReady = false;
+      if (Auth.isLoggedIn()) onLoggedIn(Auth.currentUser()); else showLogin();
+    });
+  } else {
+    if (Auth.isLoggedIn()) onLoggedIn(Auth.currentUser()); else showLogin();
+  }
 })();

@@ -15,8 +15,12 @@
   'use strict';
 
   function storageKey() {
-    var user = global.Auth && global.Auth.currentUser && global.Auth.currentUser();
-    return 'cadernoEstudos:v2:' + (user ? user.id : 'anon');
+    var uidv = global.__userId;
+    if (!uidv) {
+      var user = global.Auth && global.Auth.currentUser && global.Auth.currentUser();
+      uidv = user ? user.id : 'anon';
+    }
+    return 'cadernoEstudos:v2:' + uidv;
   }
 
   function uid() {
@@ -46,6 +50,7 @@
   function save(d) {
     try {
       global.localStorage.setItem(storageKey(), JSON.stringify(d));
+      if (global.__onStoreSaved) { try { global.__onStoreSaved(); } catch (e) {} }
       return true;
     } catch (e) {
       return false;
@@ -293,6 +298,13 @@
       }).sort(function (a, b) { return b.seconds - a.seconds; });
 
       return { today: today, week: week, month: month, total: total, perDay: perDay, perSubject: perSubject };
+    },
+
+    // ---------- Sincronização (nuvem) ----------
+    snapshot: function () { return load(); },
+    // escreve dados vindos da nuvem SEM disparar novo push
+    writeRaw: function (obj) {
+      try { global.localStorage.setItem(storageKey(), JSON.stringify(obj)); } catch (e) {}
     },
 
     // ---------- Backup ----------
