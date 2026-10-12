@@ -36,7 +36,9 @@
     { name: 'Administração', emoji: '🗂️', color: '#bdb2ff', keys: ['administracao', 'administracao geral'] },
     { name: 'Ética', emoji: '🤝', color: '#caffbf', keys: ['etica', 'etica no servico'] },
     { name: 'Estatística', emoji: '📈', color: '#9bf6ff', keys: ['estatistica'] },
-    { name: 'Economia', emoji: '💹', color: '#ffc6ff', keys: ['economia', 'economica'] }
+    { name: 'Economia', emoji: '💹', color: '#ffc6ff', keys: ['economia', 'economica'] },
+    { name: 'Técnicas Audiovisuais', emoji: '📷', color: '#9aa7ff', keys: ['tecnicas audiovisuais', 'audiovisuais', 'audiovisual'] },
+    { name: 'Criminologia', emoji: '🔎', color: '#ffa69e', keys: ['criminologia'] }
   ];
 
   var FALLBACK_COLORS = [
@@ -78,8 +80,10 @@
     if (/^#\s+\S/.test(t) && !/^#{2,}/.test(t)) return true;
     // "Matéria: X" / "Disciplina: X"
     if (/^(mat[eé]ria|disciplina)\s*[:\-]/i.test(t)) return true;
-    // casa com matéria conhecida e a linha é curta (é um título, não um texto)
-    if (matchKnown(t) && t.split(/\s+/).length <= 6) return true;
+    // casa com matéria conhecida e a linha é curta (é um título, não um texto).
+    // Exige que não termine com pontuação de frase: assim uma frase curta de
+    // conteúdo que por acaso cite o nome de uma matéria não vira um título.
+    if (matchKnown(t) && t.split(/\s+/).length <= 6 && !/[.!?;:,]$/.test(t)) return true;
     // linha curta TODA EM MAIÚSCULAS (título)
     var letters = t.replace(/[^A-Za-zÀ-ÿ]/g, '');
     if (
@@ -204,21 +208,43 @@
   var VIDEO_HOST_RE = /estrategiaconcursos\.com\.br|gran(cursos|concursos)|alura\.com\.br|hotmart|vimeo\.com|\.mp4(\?|$)/i;
 
   // Separa URLs do texto: YouTube e plataformas de vídeo → vídeos;
-  // demais → links de apoio.
+  // demais → links de apoio. Preserva o TÍTULO quando a linha vem no
+  // formato "[Título](url)" (link markdown) ou "Título — url" / "Título: url".
   function extractMedia(content) {
     var videos = [];
     var links = [];
-    var urlRe = /(https?:\/\/[^\s)]+)|(www\.[^\s)]+)/gi;
-    var text = (content || '').replace(urlRe, function (url) {
+
+    function push(url, title) {
       var full = /^https?:\/\//i.test(url) ? url : 'https://' + url;
-      if (YOUTUBE_RE.test(full) || VIDEO_HOST_RE.test(full)) {
-        videos.push({ url: full, title: '' });
-      } else {
-        links.push({ url: full, title: '' });
+      var item = { url: full, title: (title || '').trim() };
+      if (YOUTUBE_RE.test(full) || VIDEO_HOST_RE.test(full)) videos.push(item);
+      else links.push(item);
+    }
+
+    var outLines = [];
+    var lines = (content || '').split('\n');
+
+    lines.forEach(function (line) {
+      // 1) linha que é só um link markdown "[Título](url)" (com ou sem
+      //    marcador • - *). Título ganancioso: aceita colchetes internos.
+      var whole = line.match(/^[\s•\-*>]*\[(.+)\]\((https?:\/\/[^\s)]+)\)\s*$/);
+      if (whole) {
+        push(whole[2], whole[1]);
+        return; // remove a linha do texto corrido
       }
-      return ''; // tira a URL do texto corrido
+      // 2) "Título — url" / "Título: url" / "Título - url" (url no fim)
+      var tail = line.match(/^(.{2,}?)\s*(?:—|–|-|:)\s*(https?:\/\/\S+)\s*$/);
+      if (tail && !/https?:\/\//i.test(tail[1])) {
+        push(tail[2], tail[1].replace(/^[\s•\-*>]+/, ''));
+        return;
+      }
+      // 3) URLs soltas no meio do texto (sem título)
+      var urlRe = /(https?:\/\/[^\s)]+)|(www\.[^\s)]+)/gi;
+      var t = line.replace(urlRe, function (url) { push(url, ''); return ''; });
+      outLines.push(t);
     });
-    return { videos: videos, links: links, text: text };
+
+    return { videos: videos, links: links, text: outLines.join('\n') };
   }
 
   global.Importer = {

@@ -1026,7 +1026,7 @@
             Store.addLesson(mod.id, { type: 'texto', title: 'Material', content: '', links: m.links });
           }
           (m.videos || []).forEach(function (v, i) {
-            Store.addLesson(mod.id, { type: 'video', title: 'Vídeo ' + (i + 1), videoUrl: v.url });
+            Store.addLesson(mod.id, { type: 'video', title: (v.title && v.title.trim()) || ('Vídeo ' + (i + 1)), videoUrl: v.url });
           });
         });
       });
