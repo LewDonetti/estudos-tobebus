@@ -194,6 +194,21 @@ body {
 }
 .block-label { font-size: 0.78rem; font-weight: 700; color: var(--ink-2); margin: 20px 0 8px; display: flex; align-items: center; gap: 6px; }
 
+/* ---------- Modo caderno (anotar durante o vídeo) ---------- */
+.note-mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.nm-hint { font-size: 0.78rem; color: var(--ink-3); }
+.note-overlay { position: fixed; inset: 0; background: rgba(23,26,40,0.5); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 300; padding: 20px; }
+.note-card { width: 100%; max-width: 560px; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; animation: pop 0.14s ease; }
+.note-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--primary); color: #fff; font-weight: 600; font-size: 0.95rem; }
+.note-time { font-size: 0.82rem; font-weight: 700; background: rgba(255,255,255,0.18); padding: 3px 10px; border-radius: 999px; }
+.note-ta {
+  width: 100%; min-height: 220px; border: none; resize: none; font-family: inherit; font-size: 0.98rem;
+  line-height: 31px; color: var(--ink); padding: 10px 18px 14px 50px;
+  background: repeating-linear-gradient(var(--surface), var(--surface) 30px, var(--paper-line) 31px);
+}
+.note-ta:focus { outline: none; }
+.note-hint { padding: 11px 18px; font-size: 0.76rem; color: var(--ink-3); border-top: 1px solid var(--line); background: var(--surface-2); }
+
 /* ---------- Caderno (papel pautado, sóbrio) ---------- */
 .notebook { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
 .notebook-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2); flex-wrap: wrap; }

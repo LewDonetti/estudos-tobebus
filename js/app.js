@@ -14,6 +14,11 @@
   var state = { view: 'home', subjectId: null, moduleId: null, lessonId: null };
   var quizCtx = null;
   var recallCtx = null;
+  var noteKeyHandler = null; // handler do "modo caderno" ativo
+
+  function clearNoteMode() {
+    if (noteKeyHandler) { document.removeEventListener('keydown', noteKeyHandler, true); noteKeyHandler = null; }
+  }
 
   // ----- helpers ----------------------------------------------------------
   function el(html) {
@@ -67,9 +72,31 @@
     var m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/))([\w-]{11})/i);
     return m ? m[1] : null;
   }
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return m + ':' + ('0' + s).slice(-2);
+  }
+  // Carrega a API do YouTube uma vez e chama o callback quando pronta.
+  var ytReady = false, ytQueue = [];
+  function ensureYT(cb) {
+    if (window.YT && window.YT.Player) return cb();
+    ytQueue.push(cb);
+    if (ytReady) return;
+    ytReady = true;
+    var prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = function () {
+      if (typeof prev === 'function') prev();
+      ytQueue.forEach(function (f) { f(); }); ytQueue = [];
+    };
+    var tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+  }
 
   // ===== RENDER ============================================================
   function render() {
+    clearNoteMode();
     root.innerHTML = '';
     var v = state.view;
     if (v === 'home') return renderHome();
@@ -298,9 +325,16 @@
 
     if (l.type === 'video') {
       var id = ytId(l.videoUrl);
+      var frameId = null, modeBtn = null;
       if (id) {
-        root.appendChild(el('<div class="video-wrap"><iframe src="https://www.youtube-nocookie.com/embed/' + id +
-          '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>'));
+        frameId = 'yt-' + Math.random().toString(36).slice(2, 8);
+        root.appendChild(el('<div class="video-wrap"><div id="' + frameId + '"></div></div>'));
+        var on = localStorage.getItem('cadernoModo') === '1';
+        var bar = el('<div class="note-mode-bar">' +
+          '<button class="btn ' + (on ? 'success' : 'ghost') + ' small" id="noteModeBtn">📝 Modo caderno: ' + (on ? 'ligado' : 'desligado') + '</button>' +
+          '<span class="nm-hint">Com o modo ligado, é só começar a digitar que o vídeo pausa e o caderno abre.</span></div>');
+        root.appendChild(bar);
+        modeBtn = bar.querySelector('#noteModeBtn');
       } else {
         root.appendChild(el('<div class="video-empty">Cole o link do vídeo (YouTube) abaixo para assistir aqui.</div>'));
       }
@@ -310,6 +344,19 @@
       root.appendChild(el('<div class="block-label">📝 Minhas anotações</div>'));
       videoNotes = el('<textarea class="q-input" placeholder="Anote os pontos importantes da aula...">' + esc(l.content || '') + '</textarea>');
       root.appendChild(videoNotes);
+
+      if (id) {
+        var player = null;
+        ensureYT(function () {
+          try {
+            player = new YT.Player(frameId, {
+              videoId: id, host: 'https://www.youtube-nocookie.com',
+              playerVars: { rel: 0, modestbranding: 1, playsinline: 1 }
+            });
+          } catch (e) {}
+        });
+        setupNoteMode(l, modeBtn, videoNotes, function () { return player; });
+      }
     } else {
       root.appendChild(el('<div class="block-label">📒 Conteúdo</div>'));
       notebook = buildNotebook(l, postits);
@@ -361,6 +408,80 @@
     });
     actions.appendChild(saveBtn);
     root.appendChild(actions);
+  }
+
+  // Modo caderno: ao digitar, pausa o vídeo e abre o caderno rápido.
+  function setupNoteMode(lesson, btn, notesTa, getPlayer) {
+    var on = localStorage.getItem('cadernoModo') === '1';
+    var overlayOpen = false;
+
+    function onKey(e) {
+      if (overlayOpen) return;
+      var ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!e.key || e.key.length !== 1) return; // só teclas de escrita
+      e.preventDefault();
+      openNote(e.key);
+    }
+
+    function attach() {
+      if (!noteKeyHandler) { noteKeyHandler = onKey; document.addEventListener('keydown', noteKeyHandler, true); }
+    }
+
+    function applyBtn() {
+      if (!btn) return;
+      btn.className = 'btn ' + (on ? 'success' : 'ghost') + ' small';
+      btn.textContent = '📝 Modo caderno: ' + (on ? 'ligado' : 'desligado');
+    }
+
+    if (btn) btn.addEventListener('click', function () {
+      on = !on;
+      localStorage.setItem('cadernoModo', on ? '1' : '0');
+      applyBtn();
+      if (on) { attach(); toast('Modo caderno ligado. Comece a digitar para anotar.'); }
+      else { clearNoteMode(); toast('Modo caderno desligado.'); }
+    });
+    applyBtn();
+    if (on) attach();
+
+    function openNote(firstChar) {
+      overlayOpen = true;
+      var p = getPlayer && getPlayer();
+      var t = 0;
+      try { if (p && p.pauseVideo) { p.pauseVideo(); t = p.getCurrentTime ? p.getCurrentTime() : 0; } } catch (e) {}
+      var stamp = fmtTime(t);
+      var overlay = el('<div class="note-overlay"><div class="note-card">' +
+        '<div class="note-head"><span>📝 Anotação rápida</span><span class="note-time">⏱ ' + stamp + '</span></div>' +
+        '<textarea class="note-ta" placeholder="Escreva sua anotação..."></textarea>' +
+        '<div class="note-hint">Enter para salvar e voltar ao vídeo · Shift+Enter para nova linha · Esc para cancelar</div>' +
+        '</div></div>');
+      document.body.appendChild(overlay);
+      var ta = overlay.querySelector('.note-ta');
+      ta.value = firstChar === ' ' ? '' : firstChar;
+      ta.focus();
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+
+      function close(saveIt) {
+        overlayOpen = false;
+        if (saveIt) {
+          var txt = ta.value.trim();
+          if (txt) {
+            var line = '[' + stamp + '] ' + txt;
+            notesTa.value = notesTa.value ? (notesTa.value.replace(/\s+$/, '') + '\n' + line) : line;
+            Store.updateLesson(lesson.id, { content: notesTa.value });
+            toast('Anotação salva em ' + stamp + '.');
+          }
+        }
+        overlay.remove();
+        try { if (p && p.playVideo) p.playVideo(); } catch (e) {}
+      }
+      ta.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); close(true); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); close(false); }
+      });
+      overlay.addEventListener('mousedown', function (ev) { if (ev.target === overlay) close(true); });
+    }
   }
 
   // caderno (papel pautado + post-its)
