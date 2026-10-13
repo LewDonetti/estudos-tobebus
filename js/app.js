@@ -14,6 +14,8 @@
   var state = { view: 'home', courseId: null, subjectId: null, moduleId: null, lessonId: null };
   var quizCtx = null;
   var recallCtx = null;
+  var _navLock = false;   // evita empilhar histórico ao navegar pelo "voltar"
+  var appActive = false;  // true quando logado (app visível)
   var noteKeyHandler = null; // handler do "modo caderno" ativo
   var ytPlayer = null, ytTimer = null; // player de vídeo atual
 
@@ -80,6 +82,23 @@
     if ('lessonId' in ids) state.lessonId = ids.lessonId;
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    // registra a tela no histórico do navegador (botão Voltar funciona)
+    if (!_navLock && appActive) {
+      try {
+        history.pushState({ app: true, view: state.view, courseId: state.courseId,
+          subjectId: state.subjectId, moduleId: state.moduleId, lessonId: state.lessonId }, '');
+      } catch (e) {}
+    }
+  }
+
+  // destaca na barra de cima a seção atual (Início só no catálogo; dentro de
+  // um curso o caminho é mostrado pelo "← Voltar" e pelo título da página)
+  function updateNav(v) {
+    var activeId = v === 'home' ? 'homeBtn' : v === 'profile' ? 'profileBtn' : v === 'import' ? 'importContentBtn' : null;
+    ['homeBtn', 'profileBtn', 'importContentBtn'].forEach(function (id) {
+      var b = document.getElementById(id);
+      if (b) b.classList.toggle('active', id === activeId);
+    });
   }
   function shade(hex, pct) {
     var h = hex.replace('#', '');
@@ -150,6 +169,7 @@
     studyStop();
     root.innerHTML = '';
     var v = state.view;
+    updateNav(v);
     if (v === 'home') return renderHome();
     if (v === 'course') return renderCourse();
     if (v === 'subject') return renderSubject();
@@ -1452,9 +1472,22 @@
     var chip = document.getElementById('userChip');
     if (chip) chip.textContent = accountName || (currentAccount() ? currentAccount().name : '');
     try { Store.cleanupImportArtifacts(); } catch (e) {} // limpa sobras de import antigo
-    go('home');
+    appActive = true;
+    state.view = 'home';
+    try { history.replaceState({ app: true, view: 'home', courseId: null, subjectId: null, moduleId: null, lessonId: null }, ''); } catch (e) {}
+    render();
   }
-  function showLogin() { document.getElementById('topbar').classList.add('hidden'); renderLogin(); }
+  function showLogin() { appActive = false; document.getElementById('topbar').classList.add('hidden'); renderLogin(); }
+
+  // botão "Voltar" do navegador navega entre as telas do app
+  window.addEventListener('popstate', function (e) {
+    if (!appActive) return;
+    var st = (e.state && e.state.app) ? e.state : { view: 'home' };
+    _navLock = true;
+    go(st.view, { courseId: st.courseId || null, subjectId: st.subjectId || null,
+      moduleId: st.moduleId || null, lessonId: st.lessonId || null });
+    _navLock = false;
+  });
   function currentAccount() { return cloudReady ? Cloud.account() : Auth.currentUser(); }
 
   // ----- início -----
