@@ -307,6 +307,29 @@
       try { global.localStorage.setItem(storageKey(), JSON.stringify(obj)); } catch (e) {}
     },
 
+    // Limpeza única: remove sobras de import antigo nas anotações
+    // (ex.: "[Título do vídeo]()" cujo link já foi para "Links de apoio")
+    // sem tocar nas anotações da pessoa (ex.: "[12:34] minha nota"). Salva e
+    // sincroniza só se algo mudou. Retorna quantas aulas foram limpas.
+    cleanupImportArtifacts: function () {
+      var d = load();
+      var changed = 0;
+      (d.lessons || []).forEach(function (l) {
+        if (!l || typeof l.content !== 'string' || !l.content) return;
+        var before = l.content;
+        var t = before
+          .replace(/\[[^\]\n]*\]\([^)\n]*\)/g, '')   // [título](...) / [título]() mortos
+          .replace(/https?:\/\/\S+/gi, '')            // URLs soltas no texto
+          .replace(/(^|\s)www\.\S+/gi, ' ')
+          .replace(/[ \t]+\n/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .replace(/^\s+|\s+$/g, '');
+        if (t !== before) { l.content = t; changed++; }
+      });
+      if (changed) save(d);
+      return changed;
+    },
+
     // ---------- Backup ----------
     exportJSON: function () {
       return JSON.stringify(load(), null, 2);

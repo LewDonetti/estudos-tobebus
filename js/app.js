@@ -1381,6 +1381,7 @@
     document.getElementById('topbar').classList.remove('hidden');
     var chip = document.getElementById('userChip');
     if (chip) chip.textContent = accountName || (currentAccount() ? currentAccount().name : '');
+    try { Store.cleanupImportArtifacts(); } catch (e) {} // limpa sobras de import antigo
     go('home');
   }
   function showLogin() { document.getElementById('topbar').classList.add('hidden'); renderLogin(); }
