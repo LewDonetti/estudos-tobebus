@@ -58,16 +58,9 @@
   }
 
   function seedDefaults() {
+    // Conta nova começa vazia: o conteúdo vem do catálogo de cursos
+    // (window.COURSES), carregado ao abrir cada curso.
     var d = emptyDB();
-    [
-      { name: 'Português', color: '#6d5bd0', emoji: '📖' },
-      { name: 'Matemática', color: '#2f80ed', emoji: '🔢' },
-      { name: 'Raciocínio Lógico', color: '#8e5bc9', emoji: '🧩' },
-      { name: 'Direito Constitucional', color: '#e2902b', emoji: '⚖️' },
-      { name: 'Informática', color: '#2aa79b', emoji: '💻' }
-    ].forEach(function (s) {
-      d.subjects.push({ id: uid(), name: s.name, color: s.color, emoji: s.emoji, createdAt: now() });
-    });
     save(d);
     return d;
   }
@@ -79,9 +72,58 @@
   var Store = {
     uid: uid,
 
+    // ---------- Cursos embutidos ----------
+    // Carrega um curso (window.COURSES) na conta da pessoa UMA vez. Adota
+    // matérias/módulos que já existam (pelo nome), para não duplicar o que
+    // ela já importou, e só cria aulas em módulos novos. As anotações e o
+    // progresso continuam sendo de cada usuário.
+    seedCourse: function (course) {
+      if (!course || !course.id) return 0;
+      var d = load();
+      d.seededCourses = d.seededCourses || [];
+      if (d.seededCourses.indexOf(course.id) !== -1) return 0;
+      function skey(s) { return norm(s).replace(/^noc(?:oes|ao) de /, ''); }
+      var added = 0;
+      (course.subjects || []).forEach(function (cs) {
+        var subj = d.subjects.filter(function (s) { return skey(s.name) === skey(cs.name); })[0];
+        if (!subj) {
+          subj = { id: uid(), name: cs.name, color: cs.color || '#6d5bd0', emoji: cs.emoji || '📚', courseId: course.id, createdAt: now() };
+          d.subjects.push(subj); added++;
+        } else if (!subj.courseId) { subj.courseId = course.id; }
+        (cs.modules || []).forEach(function (cm) {
+          var mod = d.modules.filter(function (m) { return m.subjectId === subj.id && norm(m.title) === norm(cm.title); })[0];
+          var isNew = false;
+          if (!mod) {
+            var order = d.modules.filter(function (m) { return m.subjectId === subj.id; }).length;
+            mod = { id: uid(), subjectId: subj.id, title: cm.title, order: order, createdAt: now() };
+            d.modules.push(mod); isNew = true;
+          }
+          var hasLessons = d.lessons.some(function (l) { return l.moduleId === mod.id; });
+          if (isNew || !hasLessons) {
+            var lorder = 0;
+            var addL = function (obj) {
+              d.lessons.push({ id: uid(), moduleId: mod.id, subjectId: subj.id,
+                title: obj.title || 'Aula', type: obj.type || 'texto', videoUrl: obj.videoUrl || '',
+                content: obj.content || '', links: obj.links || [], postits: [], done: false,
+                order: lorder++, createdAt: now(), updatedAt: now() });
+            };
+            if (cm.content && cm.content.trim()) addL({ type: 'texto', title: 'Conteúdo', content: cm.content, links: cm.links || [] });
+            else if (cm.links && cm.links.length) addL({ type: 'texto', title: 'Material', content: '', links: cm.links });
+            (cm.videos || []).forEach(function (v, i) { addL({ type: 'video', title: (v.title && v.title.trim()) || ('Vídeo ' + (i + 1)), videoUrl: v.url }); });
+          }
+        });
+      });
+      d.seededCourses.push(course.id);
+      save(d);
+      return added;
+    },
+
     // ---------- Matérias ----------
     getSubjects: function () {
       return load().subjects.slice();
+    },
+    getSubjectsByCourse: function (courseId) {
+      return load().subjects.filter(function (s) { return s.courseId === courseId; });
     },
     getSubject: function (id) {
       return load().subjects.filter(function (s) { return s.id === id; })[0] || null;

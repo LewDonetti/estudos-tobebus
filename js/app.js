@@ -11,7 +11,7 @@
   var SUBJECT_EMOJIS = ['📖', '🔢', '🧩', '⚖️', '🏛️', '💻', '🌍', '📝', '🧠', '📐', '🔬', '🗺️', '💡', '📚', '🎯', '📊'];
   var POSTIT_COLORS = ['#fdf3c4', '#d6e6fb', '#d6efdd', '#f7dcd9', '#e4dcf5', '#f7e4c9'];
 
-  var state = { view: 'home', subjectId: null, moduleId: null, lessonId: null };
+  var state = { view: 'home', courseId: null, subjectId: null, moduleId: null, lessonId: null };
   var quizCtx = null;
   var recallCtx = null;
   var noteKeyHandler = null; // handler do "modo caderno" ativo
@@ -74,6 +74,7 @@
   function go(view, ids) {
     ids = ids || {};
     state.view = view;
+    if ('courseId' in ids) state.courseId = ids.courseId;
     if ('subjectId' in ids) state.subjectId = ids.subjectId;
     if ('moduleId' in ids) state.moduleId = ids.moduleId;
     if ('lessonId' in ids) state.lessonId = ids.lessonId;
@@ -150,6 +151,7 @@
     root.innerHTML = '';
     var v = state.view;
     if (v === 'home') return renderHome();
+    if (v === 'course') return renderCourse();
     if (v === 'subject') return renderSubject();
     if (v === 'module') return renderModule();
     if (v === 'lesson') return renderLesson();
@@ -159,37 +161,103 @@
     if (v === 'profile') return renderProfile();
   }
 
-  // ===== HOME (matérias) ===================================================
-  function renderHome() {
-    root.appendChild(el('<div class="section-title">Minhas matérias</div>'));
-    var grid = el('<div class="subjects-grid"></div>');
-    Store.getSubjects().forEach(function (s) {
-      var mods = Store.getModules(s.id).length;
-      var pr = Store.subjectProgress(s.id);
-      var card = el(
-        '<div class="subject-card">' +
-          '<div class="accent" style="background:' + s.color + '"></div>' +
-          '<button class="del" title="Remover">✕</button>' +
-          '<div class="s-top">' +
-            '<div class="emoji" style="background:' + hexA(s.color, 0.12) + '">' + s.emoji + '</div>' +
-            '<div><h3>' + esc(s.name) + '</h3>' +
-            '<div class="meta">' + mods + ' módulo' + (mods === 1 ? '' : 's') + '</div></div>' +
-          '</div>' +
-          (pr.total ? progressBar(pr.done, pr.total) : '<div class="meta">Sem aulas ainda</div>') +
-        '</div>'
-      );
-      card.addEventListener('click', function () { go('subject', { subjectId: s.id }); });
-      card.querySelector('.del').addEventListener('click', function (e) {
-        e.stopPropagation();
-        confirmModal('Remover "' + s.name + '"?', 'Isso apaga os módulos e aulas desta matéria.', function () {
-          Store.deleteSubject(s.id); toast('Matéria removida.'); render();
-        });
+  // Soma o progresso (aulas concluídas/total) de um curso já carregado.
+  function courseProgress(courseId) {
+    var subs = Store.getSubjectsByCourse(courseId);
+    var done = 0, total = 0;
+    subs.forEach(function (s) { var p = Store.subjectProgress(s.id); done += p.done; total += p.total; });
+    return { done: done, total: total, started: subs.length > 0 };
+  }
+
+  // Card de matéria (reutilizado no curso e em "minhas matérias").
+  function subjectCard(s) {
+    var mods = Store.getModules(s.id).length;
+    var pr = Store.subjectProgress(s.id);
+    var card = el(
+      '<div class="subject-card">' +
+        '<div class="accent" style="background:' + s.color + '"></div>' +
+        '<button class="del" title="Remover">✕</button>' +
+        '<div class="s-top">' +
+          '<div class="emoji" style="background:' + hexA(s.color, 0.12) + '">' + s.emoji + '</div>' +
+          '<div><h3>' + esc(s.name) + '</h3>' +
+          '<div class="meta">' + mods + ' módulo' + (mods === 1 ? '' : 's') + '</div></div>' +
+        '</div>' +
+        (pr.total ? progressBar(pr.done, pr.total) : '<div class="meta">Sem aulas ainda</div>') +
+      '</div>'
+    );
+    card.addEventListener('click', function () { go('subject', { subjectId: s.id }); });
+    card.querySelector('.del').addEventListener('click', function (e) {
+      e.stopPropagation();
+      confirmModal('Remover "' + s.name + '"?', 'Isso apaga os módulos e aulas desta matéria (só na sua conta).', function () {
+        Store.deleteSubject(s.id); toast('Matéria removida.'); render();
       });
-      grid.appendChild(card);
     });
+    return card;
+  }
+
+  // ===== INÍCIO (catálogo de cursos) =======================================
+  function renderHome() {
+    var courses = window.COURSES || [];
+    if (courses.length) {
+      root.appendChild(el('<div class="section-title">Cursos</div>'));
+      var cg = el('<div class="subjects-grid"></div>');
+      courses.forEach(function (c) {
+        var pr = courseProgress(c.id);
+        var nSub = (c.subjects || []).length;
+        var card = el(
+          '<div class="subject-card course-card">' +
+            '<div class="accent" style="background:' + c.color + '"></div>' +
+            '<div class="s-top">' +
+              '<div class="emoji" style="background:' + hexA(c.color, 0.12) + '">' + c.emoji + '</div>' +
+              '<div><h3>' + esc(c.title) + '</h3>' +
+              '<div class="meta">' + esc(c.subtitle || (nSub + ' matérias')) + '</div></div>' +
+            '</div>' +
+            (pr.started && pr.total ? progressBar(pr.done, pr.total)
+              : '<div class="meta" style="margin-top:8px;color:' + c.color + ';font-weight:600">Começar →</div>') +
+          '</div>'
+        );
+        card.addEventListener('click', function () {
+          Store.seedCourse(c);                 // carrega o curso na conta (1x)
+          go('course', { courseId: c.id });
+        });
+        cg.appendChild(card);
+      });
+      root.appendChild(cg);
+    }
+
+    // Matérias criadas/importadas pela própria pessoa (fora de um curso)
+    var mine = Store.getSubjects().filter(function (s) { return !s.courseId; });
+    root.appendChild(el('<div class="section-title" style="margin-top:22px">Minhas matérias</div>'));
+    var grid = el('<div class="subjects-grid"></div>');
+    mine.forEach(function (s) { grid.appendChild(subjectCard(s)); });
     var add = el('<div class="subject-card add"><span style="font-size:1.3rem">＋</span> Adicionar matéria</div>');
     add.addEventListener('click', openSubjectModal);
     grid.appendChild(add);
+    root.appendChild(grid);
+  }
+
+  // ===== CURSO (matérias do curso) =========================================
+  function renderCourse() {
+    var course = (window.COURSES || []).filter(function (c) { return c.id === state.courseId; })[0];
+    if (!course) return go('home');
+    var back = el('<div class="back-link">← Início</div>');
+    back.addEventListener('click', function () { go('home'); });
+    root.appendChild(back);
+
+    var pr = courseProgress(course.id);
+    root.appendChild(el(
+      '<div class="page-head">' +
+        '<div class="ph-icon" style="background:' + course.color + '">' + course.emoji + '</div>' +
+        '<div><h2>' + esc(course.title) + '</h2>' +
+          '<div class="ph-sub">' + esc(course.subtitle || '') + '</div></div>' +
+        '<div class="ph-right">' + (pr.total ? progressBar(pr.done, pr.total) : '') + '</div>' +
+      '</div>'
+    ));
+
+    var subs = Store.getSubjectsByCourse(course.id);
+    if (!subs.length) { Store.seedCourse(course); subs = Store.getSubjectsByCourse(course.id); }
+    var grid = el('<div class="subjects-grid"></div>');
+    subs.forEach(function (s) { grid.appendChild(subjectCard(s)); });
     root.appendChild(grid);
   }
 
@@ -200,8 +268,10 @@
     var mods = Store.getModules(s.id);
     var pr = Store.subjectProgress(s.id);
 
-    var back = el('<div class="back-link">← Matérias</div>');
-    back.addEventListener('click', function () { go('home'); });
+    var back = el('<div class="back-link">← ' + (s.courseId ? 'Curso' : 'Início') + '</div>');
+    back.addEventListener('click', function () {
+      if (s.courseId) go('course', { courseId: s.courseId }); else go('home');
+    });
     root.appendChild(back);
 
     root.appendChild(el(
