@@ -11,7 +11,7 @@ window.COURSES = [
  {
   "id": "ftp-pcsp",
   "title": "Fotógrafo Técnico-Pericial — PC-SP",
-  "subtitle": "Banca Vunesp · 6 matérias · 59 módulos · simulados inclusos",
+  "subtitle": "Banca Vunesp · Polícia Científica de SP",
   "emoji": "📷",
   "color": "#5b4fd6",
   "subjects": [

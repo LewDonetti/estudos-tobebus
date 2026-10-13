@@ -119,6 +119,30 @@ body {
   border-style: dashed; color: var(--primary); background: var(--surface-2); font-weight: 600;
 }
 
+/* ---------- Card de curso (catálogo) ---------- */
+.course-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+.course-card {
+  position: relative; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; cursor: pointer; box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.course-card:hover { box-shadow: var(--shadow); transform: translateY(-3px); }
+.course-card .cc-banner { position: relative; height: 96px; display: flex; align-items: center; justify-content: center; }
+.course-card .cc-emoji { font-size: 2.6rem; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25)); }
+.course-card .cc-tag {
+  position: absolute; top: 10px; left: 12px; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em;
+  color: #fff; background: rgba(255,255,255,0.22); padding: 3px 9px; border-radius: 999px;
+}
+.course-card .cc-body { padding: 14px 16px 16px; }
+.course-card .cc-body h3 { font-size: 1.04rem; font-weight: 700; line-height: 1.25; }
+.course-card .cc-sub { font-size: 0.78rem; color: var(--ink-3); margin-top: 3px; }
+.course-card .cc-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 14px; }
+.course-card .cc-stats span {
+  font-size: 0.72rem; color: var(--ink-2); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px;
+}
+.course-card .cc-start { font-weight: 700; font-size: 0.9rem; }
+
 /* ---------- Barra de progresso ---------- */
 .progress { height: 7px; background: var(--line-2); border-radius: 999px; overflow: hidden; }
 .progress > span { display: block; height: 100%; background: var(--success); border-radius: 999px; transition: width 0.4s ease; }

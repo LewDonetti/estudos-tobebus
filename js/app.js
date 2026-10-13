@@ -215,33 +215,44 @@
     return card;
   }
 
+  // Card de curso do catálogo (capa com gradiente, etiqueta e números).
+  function courseCard(c) {
+    var pr = courseProgress(c.id);
+    var nSub = (c.subjects || []).length;
+    var nMod = (c.subjects || []).reduce(function (a, s) { return a + (s.modules ? s.modules.length : 0); }, 0);
+    var grad = 'linear-gradient(135deg,' + c.color + ',' + shade(c.color, -24) + ')';
+    var foot = (pr.started && pr.total)
+      ? '<div class="progress-row"><div class="progress"><span style="width:' + Math.round(pr.done / pr.total * 100) + '%"></span></div>' +
+        '<span class="progress-label">' + pr.done + '/' + pr.total + '</span></div>'
+      : '<div class="cc-start" style="color:' + c.color + '">Começar →</div>';
+    var card = el(
+      '<div class="course-card">' +
+        '<div class="cc-banner" style="background:' + grad + '">' +
+          '<span class="cc-tag">CURSO</span>' +
+          '<span class="cc-emoji">' + c.emoji + '</span>' +
+        '</div>' +
+        '<div class="cc-body">' +
+          '<h3>' + esc(c.title) + '</h3>' +
+          '<div class="cc-sub">' + esc(c.subtitle || '') + '</div>' +
+          '<div class="cc-stats"><span>📚 ' + nSub + ' matérias</span><span>🧩 ' + nMod + ' módulos</span><span>🎯 simulados</span></div>' +
+          foot +
+        '</div>' +
+      '</div>'
+    );
+    card.addEventListener('click', function () {
+      Store.seedCourse(c);                 // carrega o curso na conta (1x)
+      go('course', { courseId: c.id });
+    });
+    return card;
+  }
+
   // ===== INÍCIO (catálogo de cursos) =======================================
   function renderHome() {
     var courses = window.COURSES || [];
     if (courses.length) {
       root.appendChild(el('<div class="section-title">Cursos</div>'));
-      var cg = el('<div class="subjects-grid"></div>');
-      courses.forEach(function (c) {
-        var pr = courseProgress(c.id);
-        var nSub = (c.subjects || []).length;
-        var card = el(
-          '<div class="subject-card course-card">' +
-            '<div class="accent" style="background:' + c.color + '"></div>' +
-            '<div class="s-top">' +
-              '<div class="emoji" style="background:' + hexA(c.color, 0.12) + '">' + c.emoji + '</div>' +
-              '<div><h3>' + esc(c.title) + '</h3>' +
-              '<div class="meta">' + esc(c.subtitle || (nSub + ' matérias')) + '</div></div>' +
-            '</div>' +
-            (pr.started && pr.total ? progressBar(pr.done, pr.total)
-              : '<div class="meta" style="margin-top:8px;color:' + c.color + ';font-weight:600">Começar →</div>') +
-          '</div>'
-        );
-        card.addEventListener('click', function () {
-          Store.seedCourse(c);                 // carrega o curso na conta (1x)
-          go('course', { courseId: c.id });
-        });
-        cg.appendChild(card);
-      });
+      var cg = el('<div class="course-grid"></div>');
+      courses.forEach(function (c) { cg.appendChild(courseCard(c)); });
       root.appendChild(cg);
     }
 
