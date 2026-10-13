@@ -282,7 +282,7 @@
     if (Store.moduleContent(m.id).replace(/\s/g, '').length > 40) {
       var qz = el('<button class="btn outline">🎯 Simulado</button>');
       qz.addEventListener('click', function () {
-        startQuiz({ subjectId: s.id, moduleId: m.id, content: Store.moduleContent(m.id), scope: 'modulo', label: 'Simulado — ' + m.title });
+        startQuiz({ subjectId: s.id, moduleId: m.id, subjectName: s.name, moduleTitle: m.title, content: Store.moduleContent(m.id), scope: 'modulo', label: 'Simulado — ' + m.title });
       });
       var rc = el('<button class="btn outline">🧠 Você se lembra?</button>');
       rc.addEventListener('click', function () {
@@ -745,6 +745,32 @@
   }
 
   // ===== QUESTIONÁRIO ======================================================
+  function _normKey(s) {
+    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  }
+  function shuffleArr(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+  // Procura no banco de simulados prontos (window.SIMULADOS) as questões
+  // do módulo pelo nome da matéria + título do módulo.
+  function bankLookup(subjectName, moduleTitle) {
+    var bank = window.SIMULADOS;
+    if (!bank || !subjectName || !moduleTitle) return null;
+    // tolera o prefixo "Noções de" (varia conforme a versão do importador)
+    var sk = _normKey(subjectName).replace(/^noc(?:oes|ao) de /, '');
+    var mods = bank[sk];
+    if (!mods || !mods.length) return null;
+    var mt = _normKey(moduleTitle).replace(/^modulo\s+\d+\s+/, ''); // tira "modulo N "
+    for (var i = 0; i < mods.length; i++) {
+      var k = mods[i].key;
+      if (k && (mt.indexOf(k) !== -1 || k.indexOf(mt) !== -1)) return mods[i].questions;
+    }
+    return null;
+  }
+
   function startQuiz(ctx) { quizCtx = ctx; go('quiz', { subjectId: ctx.subjectId, moduleId: ctx.moduleId }); }
 
   function renderQuiz() {
@@ -758,37 +784,28 @@
     root.appendChild(screen);
     var questions, idx, scoreSum, review;
 
-    var usingAI = AI.isReady();
-    screen.innerHTML = '<div style="text-align:center;padding:26px"><div class="spinner"></div>' +
-      '<h2 style="margin-top:14px">' + (usingAI ? 'Gerando o simulado com IA...' : 'Montando o simulado...') + '</h2>' +
-      '<p style="color:var(--ink-3);margin-top:6px">Um instante.</p></div>';
+    // 1) banco de questões pronto (simulados oficiais da matéria);
+    // 2) senão, gerador básico a partir do próprio texto do módulo.
+    var banked = bankLookup(ctx.subjectName, ctx.moduleTitle);
+    var fromBank = !!(banked && banked.length);
+    questions = fromBank ? banked.slice() : Quiz.generate(ctx.content, { mc: 8, diss: 0, max: 8 });
 
-    var build = usingAI
-      ? AI.generateQuiz(ctx.content, { mc: 10, diss: 0 }).catch(function (err) {
-          toast('IA indisponível (' + (err.message || 'erro') + '). Usando modo offline.');
-          return Quiz.generate(ctx.content, { mc: 8, diss: 0, max: 8 });
-        })
-      : Promise.resolve(Quiz.generate(ctx.content, { mc: 8, diss: 0, max: 8 }));
-
-    build.then(function (qs) {
-      questions = qs || [];
-      if (!questions.length) {
-        screen.innerHTML = '<div style="text-align:center"><div style="font-size:2.4rem">📝</div>' +
-          '<h2>Ainda não dá pra montar o questionário</h2><p style="color:var(--ink-3);margin-top:8px">' +
-          'Adicione mais conteúdo nas aulas deste módulo.</p></div>';
-        return;
-      }
-      if (!usingAI) {
-        root.insertBefore(el(
-          '<div class="ai-note" style="margin:0 0 12px;padding:10px 14px;border-radius:12px;' +
-          'background:#fff6e6;border:1px solid #ffe0a3;color:#8a5a00;font-size:.88rem;line-height:1.4">' +
-          '⚠️ Simulado básico (sem IA). Ligue a IA em <strong>🤖 IA</strong> para gerar questões ' +
-          'de verdade sobre o conteúdo estudado.</div>'
-        ), screen);
-      }
-      idx = 0; scoreSum = 0; review = [];
-      renderQuestion();
-    });
+    if (!questions.length) {
+      screen.innerHTML = '<div style="text-align:center"><div style="font-size:2.4rem">📝</div>' +
+        '<h2>Ainda não dá pra montar o simulado</h2><p style="color:var(--ink-3);margin-top:8px">' +
+        'Adicione mais conteúdo nas aulas deste módulo.</p></div>';
+      return;
+    }
+    if (fromBank) questions = shuffleArr(questions); // ordem varia a cada tentativa
+    if (!fromBank) {
+      root.insertBefore(el(
+        '<div class="ai-note" style="margin:0 0 12px;padding:10px 14px;border-radius:12px;' +
+        'background:#fff6e6;border:1px solid #ffe0a3;color:#8a5a00;font-size:.88rem;line-height:1.4">' +
+        'ℹ️ Simulado básico, gerado a partir das suas anotações deste módulo.</div>'
+      ), screen);
+    }
+    idx = 0; scoreSum = 0; review = [];
+    renderQuestion();
 
     function shell() {
       var pct = Math.round((idx / questions.length) * 100);
@@ -800,22 +817,26 @@
     function renderQuestion() { shell(); var q = questions[idx]; if (q.type === 'mc') renderMC(q); else renderDiss(q); }
 
     function renderMC(q) {
-      screen.appendChild(el('<span class="q-type-badge mc">Múltipla escolha' + (q.ai ? ' <span class="ai-chip">IA</span>' : '') + '</span>'));
+      screen.appendChild(el('<span class="q-type-badge mc">Múltipla escolha</span>'));
       screen.appendChild(el('<div class="q-text">' + esc(q.stem) + (q.concept ? ' <span class="concept">' + esc(q.concept) + '</span>:' : '') + '</div>'));
       var wrap = el('<div class="mc-options"></div>');
       var answered = false;
-      q.options.forEach(function (opt, i) {
-        var btn = el('<button class="mc-option"><span class="mc-letter">' + String.fromCharCode(65 + i) + '</span><span class="mc-opt-text">' + esc(opt) + '</span></button>');
+      // embaralha a ordem das alternativas a cada exibição (distribui a correta
+      // de forma justa e muda a cada tentativa). order[pos] = índice original.
+      var order = shuffleArr(q.options.map(function (_, i) { return i; }));
+      var correctPos = order.indexOf(q.correctIndex);
+      order.forEach(function (origIdx, pos) {
+        var btn = el('<button class="mc-option"><span class="mc-letter">' + String.fromCharCode(65 + pos) + '</span><span class="mc-opt-text">' + esc(q.options[origIdx]) + '</span></button>');
         btn.addEventListener('click', function () {
           if (answered) return; answered = true;
-          var r = Quiz.grade(q, i); var credit = r.correct ? 1 : 0; scoreSum += credit;
+          var r = Quiz.grade(q, origIdx); var credit = r.correct ? 1 : 0; scoreSum += credit;
           var all = wrap.querySelectorAll('.mc-option');
-          all[q.correctIndex].classList.add('correct');
+          all[correctPos].classList.add('correct');
           if (!r.correct) btn.classList.add('wrong');
           all.forEach(function (b) { b.disabled = true; });
-          review.push({ type: 'mc', concept: q.concept || q.stem, correct: r.correct, credit: credit, chosenText: q.options[i], correctText: q.options[q.correctIndex] });
+          review.push({ type: 'mc', concept: q.concept || q.stem, correct: r.correct, credit: credit, chosenText: q.options[origIdx], correctText: q.options[q.correctIndex] });
           screen.appendChild(el('<div class="answer-feedback ' + (r.correct ? 'ok' : 'bad') + '" style="margin-top:16px"><h4>' +
-            (r.correct ? '✅ Correta.' : '❌ A correta é a letra ' + String.fromCharCode(65 + q.correctIndex) + '.') + '</h4>' +
+            (r.correct ? '✅ Correta.' : '❌ A correta é a letra ' + String.fromCharCode(65 + correctPos) + '.') + '</h4>' +
             (q.explanation ? '<div style="margin-top:6px;font-size:.9rem;line-height:1.45">' + esc(q.explanation) + '</div>' : '') + '</div>'));
           screen.appendChild(nextBtn());
           window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -826,38 +847,19 @@
     }
 
     function renderDiss(q) {
-      var withAI = q.ai && AI.isReady();
-      screen.appendChild(el('<span class="q-type-badge diss">Dissertativa' + (q.ai ? ' <span class="ai-chip">IA</span>' : '') + '</span>'));
+      screen.appendChild(el('<span class="q-type-badge diss">Dissertativa</span>'));
       screen.appendChild(el('<div class="q-text">' + esc(q.stem) + (q.concept ? ' <span class="concept">' + esc(q.concept) + '</span>:' : '') + '</div>'));
       var ta = el('<textarea class="q-input" placeholder="Desenvolva sua resposta..."></textarea>');
       screen.appendChild(ta);
       var actions = el('<div class="q-actions"></div>');
-      var send = el('<button class="btn">' + (withAI ? 'Responder e corrigir com IA' : 'Responder e ver gabarito') + '</button>');
+      var send = el('<button class="btn">Responder e ver gabarito</button>');
       actions.appendChild(send); screen.appendChild(actions);
       send.addEventListener('click', function () {
         if (ta.value.trim().length < 10) { toast('Desenvolva um pouco mais.'); return; }
         ta.disabled = true;
-        if (withAI) {
-          send.textContent = 'Corrigindo...'; send.disabled = true;
-          AI.gradeDissertativa(q, ta.value).then(function (g) { send.remove(); showAIGrade(q, ta.value, g); })
-            .catch(function (err) { toast('IA indisponível (' + (err.message || 'erro') + ').'); send.remove(); showSelf(q, ta.value); });
-          return;
-        }
         send.remove(); showSelf(q, ta.value);
       });
       setTimeout(function () { ta.focus(); }, 50);
-    }
-
-    function showAIGrade(q, ans, g) {
-      var credit = g.score >= 75 ? 1 : g.score >= 40 ? 0.5 : 0; scoreSum += credit;
-      var cls = g.score >= 75 ? 'ok' : g.score >= 40 ? 'reveal' : 'bad';
-      review.push({ type: 'diss', concept: q.concept || q.stem, credit: credit, user: ans, selfLabel: g.score + '/100 (IA)' });
-      var miss = (g.missing || []).length ? '<p style="margin-top:8px;font-size:.86rem"><strong>Pode melhorar:</strong> ' + g.missing.map(esc).join('; ') + '</p>' : '';
-      screen.appendChild(el('<div class="answer-feedback ' + cls + '" style="margin-top:16px"><h4>Correção da IA — nota ' + g.score + '/100</h4>' +
-        '<p style="margin-top:4px">' + esc(g.feedback || '') + '</p>' + miss +
-        (q.reveal ? '<details style="margin-top:10px"><summary style="color:var(--ink-3)">Ver resposta-modelo</summary><div class="reveal-note" style="margin-top:6px">' + esc(q.reveal) + '</div></details>' : '') + '</div>'));
-      screen.appendChild(nextBtn());
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }
 
     function showSelf(q, ans) {
@@ -1204,83 +1206,6 @@
     document.body.appendChild(overlay);
   }
 
-  // ===== IA (simples) ======================================================
-  function openAIModal() {
-    var cfg = AI.getConfig();
-    var overlay = el('<div class="modal-overlay"></div>');
-    var modal = el(
-      '<div class="modal">' +
-        '<h3>🤖 Correção inteligente (IA)</h3>' +
-        '<p style="color:var(--ink-2);font-size:.86rem;margin-bottom:16px">Com a IA ligada, o questionário é gerado pela Claude e as dissertativas são corrigidas com nota e comentário. Sem ligar, o sistema funciona normalmente.</p>' +
-        '<div class="field"><label>Ativar IA</label><div class="ai-toggle">' +
-          '<button class="ai-opt" data-mode="offline">Desligada</button>' +
-          '<button class="ai-opt" data-mode="ia">Ligada</button></div></div>' +
-        '<div id="aiFields">' +
-          '<div class="field"><label>Chave da Claude</label>' +
-            '<input type="password" id="aiKey" placeholder="cole sua chave aqui" value="' + esc(cfg.apiKey) + '" />' +
-            '<div class="field-hint">Pegue em console.anthropic.com → API Keys. Fica salva só neste navegador.</div></div>' +
-          '<span class="adv-toggle" id="advToggle">⚙️ Configuração avançada</span>' +
-          '<div id="advBox" class="hidden" style="margin-top:12px">' +
-            '<div class="field"><label>Modelo</label><select id="aiModel">' +
-              AI.MODELS.map(function (m) { return '<option value="' + m.id + '"' + (m.id === cfg.model ? ' selected' : '') + '>' + esc(m.label) + '</option>'; }).join('') +
-            '</select></div>' +
-            '<div class="field"><label>Servidor (proxy) — opcional</label>' +
-              '<input type="text" id="aiProxy" placeholder="https://seu-proxy.workers.dev" value="' + esc(cfg.proxyUrl) + '" />' +
-              '<div class="field-hint">Para site público: um servidor guarda a chave em segredo. Veja a pasta proxy/.</div></div>' +
-            '<div class="field"><label>Token do proxy — opcional</label>' +
-              '<input type="password" id="aiProxyToken" placeholder="se o proxy exigir" value="' + esc(cfg.proxyToken) + '" /></div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="modal-actions"><button class="btn ghost" id="aiCancel">Cancelar</button><button class="btn" id="aiSave">Salvar</button></div>' +
-      '</div>'
-    );
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    var selMode = cfg.mode;
-    function refresh() {
-      modal.querySelectorAll('.ai-opt').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-mode') === selMode); });
-      modal.querySelector('#aiFields').style.display = selMode === 'ia' ? '' : 'none';
-    }
-    modal.querySelectorAll('.ai-opt').forEach(function (b) { b.addEventListener('click', function () { selMode = b.getAttribute('data-mode'); refresh(); }); });
-    refresh();
-    modal.querySelector('#advToggle').addEventListener('click', function () { modal.querySelector('#advBox').classList.toggle('hidden'); });
-
-    function collect() {
-      var proxy = modal.querySelector('#aiProxy').value.trim();
-      return {
-        mode: selMode,
-        endpoint: proxy ? 'proxy' : 'direct',
-        apiKey: modal.querySelector('#aiKey').value.trim(),
-        proxyUrl: proxy,
-        proxyToken: modal.querySelector('#aiProxyToken').value.trim(),
-        model: modal.querySelector('#aiModel').value
-      };
-    }
-    function close() { overlay.remove(); }
-    modal.querySelector('#aiCancel').addEventListener('click', close);
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
-    modal.querySelector('#aiSave').addEventListener('click', function () {
-      AI.setConfig(collect());
-      if (selMode === 'ia' && AI.isReady()) {
-        var btn = modal.querySelector('#aiSave'); btn.textContent = 'Verificando...'; btn.disabled = true;
-        AI._callClaude({ user: 'Responda apenas: OK', maxTokens: 20, effort: 'low' })
-          .then(function () { updateAIBadge(); toast('IA ativada e funcionando. ✅'); close(); })
-          .catch(function (err) { toast('Não conectou: ' + (err.message || 'erro')); btn.textContent = 'Salvar'; btn.disabled = false; });
-      } else {
-        updateAIBadge(); toast(selMode === 'ia' ? 'Preencha a chave para ativar.' : 'IA desligada.');
-        if (selMode !== 'ia') close();
-      }
-    });
-  }
-
-  function updateAIBadge() {
-    var btn = document.getElementById('aiBtn');
-    if (!btn) return;
-    if (AI.isReady()) { btn.classList.remove('ghost'); btn.textContent = '🤖 IA ligada'; }
-    else { btn.classList.add('ghost'); btn.textContent = '🤖 IA'; }
-  }
-
   // ===== BACKUP ============================================================
   function exportBackup() {
     var blob = new Blob([Store.exportJSON()], { type: 'application/json' });
@@ -1430,7 +1355,6 @@
   document.getElementById('homeBtn').addEventListener('click', function () { go('home'); });
   document.getElementById('profileBtn').addEventListener('click', function () { go('profile'); });
   document.getElementById('importContentBtn').addEventListener('click', function () { go('import', { subjectId: null }); });
-  document.getElementById('aiBtn').addEventListener('click', openAIModal);
   document.getElementById('exportBtn').addEventListener('click', exportBackup);
   document.getElementById('importBtn').addEventListener('click', importBackup);
   document.getElementById('logoutBtn').addEventListener('click', function () {
@@ -1457,7 +1381,7 @@
     document.getElementById('topbar').classList.remove('hidden');
     var chip = document.getElementById('userChip');
     if (chip) chip.textContent = accountName || (currentAccount() ? currentAccount().name : '');
-    updateAIBadge(); go('home');
+    go('home');
   }
   function showLogin() { document.getElementById('topbar').classList.add('hidden'); renderLogin(); }
   function currentAccount() { return cloudReady ? Cloud.account() : Auth.currentUser(); }
