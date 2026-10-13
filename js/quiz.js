@@ -23,6 +23,22 @@
 
   var R = global.Recall;
 
+  // Limpa o texto de estudo antes de gerar questões: tira links, a sintaxe
+  // de link do import "[título](url)" / "[título]()", marcas de tempo do
+  // caderno "[12:34]" e sobras de colchetes/parênteses vazios. Assim nem a
+  // IA nem o modo offline usam lixo como alternativa.
+  function cleanText(text) {
+    var t = String(text || '');
+    t = t.replace(/\[([^\]]+)\]\((?:[^)]*)\)/g, '$1');   // [título](url) -> título
+    t = t.replace(/https?:\/\/\S+/gi, ' ');
+    t = t.replace(/www\.\S+/gi, ' ');
+    t = t.replace(/[\[(]\s*\d{1,2}:\d{2}(?::\d{2})?\s*[\])]/g, ' '); // [12:34] (1:02:03)
+    t = t.replace(/\(buscar no youtube\)/gi, ' ');
+    t = t.replace(/\[\s*\]|\(\s*\)/g, ' ');              // colchetes/parênteses vazios
+    t = t.replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n');
+    return t.trim();
+  }
+
   var CONCEPT_BLOCK = {};
   (
     'antes depois porque entao assim tambem quando sempre nunca exemplo ' +
@@ -169,12 +185,13 @@
    */
   function generate(text, options) {
     options = options || {};
-    var max = options.max || 7;
-    var wantMC = options.mc != null ? options.mc : 5;
-    var wantDiss = options.diss != null ? options.diss : 2;
+    text = cleanText(text);
+    var max = options.max || 10;
+    var wantDiss = options.diss != null ? options.diss : 0;
+    var wantMC = options.mc != null ? options.mc : (wantDiss > 0 ? 5 : max);
 
     var sentences = dedupe(splitSentences(text));
-    var concepts = topConcepts(text, 14);
+    var concepts = topConcepts(text, 18);
 
     var mcQuestions = [];
     var usedCorrect = {};
@@ -192,8 +209,8 @@
     }
 
     // monta respeitando o máximo: prioriza múltipla escolha, fecha com
-    // dissertativas
-    var nDiss = Math.min(dissQuestions.length, Math.max(1, wantDiss));
+    // dissertativas (se pedidas)
+    var nDiss = wantDiss > 0 ? Math.min(dissQuestions.length, wantDiss) : 0;
     var nMC = Math.min(mcQuestions.length, max - nDiss);
     if (nMC < 0) nMC = 0;
     var questions = mcQuestions.slice(0, nMC).concat(dissQuestions.slice(0, nDiss));
@@ -264,6 +281,7 @@
 
   global.Quiz = {
     generate: generate,
-    grade: grade
+    grade: grade,
+    cleanText: cleanText
   };
 })(window);

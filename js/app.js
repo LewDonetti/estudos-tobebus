@@ -280,9 +280,9 @@
     });
     tb.appendChild(addVid); tb.appendChild(addTxt);
     if (Store.moduleContent(m.id).replace(/\s/g, '').length > 40) {
-      var qz = el('<button class="btn outline">🎯 Questionário</button>');
+      var qz = el('<button class="btn outline">🎯 Simulado</button>');
       qz.addEventListener('click', function () {
-        startQuiz({ subjectId: s.id, moduleId: m.id, content: Store.moduleContent(m.id), scope: 'modulo', label: 'Questionário — ' + m.title });
+        startQuiz({ subjectId: s.id, moduleId: m.id, content: Store.moduleContent(m.id), scope: 'modulo', label: 'Simulado — ' + m.title });
       });
       var rc = el('<button class="btn outline">🧠 Você se lembra?</button>');
       rc.addEventListener('click', function () {
@@ -760,15 +760,15 @@
 
     var usingAI = AI.isReady();
     screen.innerHTML = '<div style="text-align:center;padding:26px"><div class="spinner"></div>' +
-      '<h2 style="margin-top:14px">' + (usingAI ? 'Gerando questões com IA...' : 'Montando o questionário...') + '</h2>' +
+      '<h2 style="margin-top:14px">' + (usingAI ? 'Gerando o simulado com IA...' : 'Montando o simulado...') + '</h2>' +
       '<p style="color:var(--ink-3);margin-top:6px">Um instante.</p></div>';
 
     var build = usingAI
-      ? AI.generateQuiz(ctx.content, { mc: 5, diss: 2 }).catch(function (err) {
+      ? AI.generateQuiz(ctx.content, { mc: 10, diss: 0 }).catch(function (err) {
           toast('IA indisponível (' + (err.message || 'erro') + '). Usando modo offline.');
-          return Quiz.generate(ctx.content, { max: 7 });
+          return Quiz.generate(ctx.content, { mc: 8, diss: 0, max: 8 });
         })
-      : Promise.resolve(Quiz.generate(ctx.content, { max: 7 }));
+      : Promise.resolve(Quiz.generate(ctx.content, { mc: 8, diss: 0, max: 8 }));
 
     build.then(function (qs) {
       questions = qs || [];
@@ -777,6 +777,14 @@
           '<h2>Ainda não dá pra montar o questionário</h2><p style="color:var(--ink-3);margin-top:8px">' +
           'Adicione mais conteúdo nas aulas deste módulo.</p></div>';
         return;
+      }
+      if (!usingAI) {
+        root.insertBefore(el(
+          '<div class="ai-note" style="margin:0 0 12px;padding:10px 14px;border-radius:12px;' +
+          'background:#fff6e6;border:1px solid #ffe0a3;color:#8a5a00;font-size:.88rem;line-height:1.4">' +
+          '⚠️ Simulado básico (sem IA). Ligue a IA em <strong>🤖 IA</strong> para gerar questões ' +
+          'de verdade sobre o conteúdo estudado.</div>'
+        ), screen);
       }
       idx = 0; scoreSum = 0; review = [];
       renderQuestion();

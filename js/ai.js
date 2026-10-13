@@ -21,9 +21,9 @@
   var API_VERSION = '2023-06-01';
 
   var MODELS = [
-    { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 — mais inteligente' },
-    { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 — equilibrado' },
-    { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 — mais rápido e barato' }
+    { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 — rápido e econômico (recomendado)' },
+    { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 — mais aprofundado' },
+    { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 — máximo (mais caro)' }
   ];
 
   function defaults() {
@@ -33,7 +33,7 @@
       apiKey: '',
       proxyUrl: '',
       proxyToken: '', // token opcional do proxy (header x-app-token)
-      model: 'claude-opus-5-5'
+      model: 'claude-haiku-5-5'
     };
   }
 
@@ -66,7 +66,7 @@
   function callClaude(opts) {
     var cfg = getConfig();
     var body = {
-      model: cfg.model || 'claude-opus-5-5',
+      model: cfg.model || 'claude-haiku-5-5',
       max_tokens: opts.maxTokens || 8000,
       output_config: { effort: opts.effort || 'low' },
       messages: [{ role: 'user', content: opts.user }]
@@ -144,36 +144,54 @@
     return JSON.parse(t.slice(start));
   }
 
-  // ----- Gera o questionário ---------------------------------------------
+  // ----- Gera o simulado --------------------------------------------------
   function generateQuiz(content, options) {
     options = options || {};
-    var nMC = options.mc != null ? options.mc : 5;
-    var nDiss = options.diss != null ? options.diss : 2;
+    var nMC = options.mc != null ? options.mc : 10;
+    var nDiss = options.diss != null ? options.diss : 0;
 
-    var material = (content || '').slice(0, 30000);
+    // Limpa o material (tira links, colchetes de import e marcas de tempo do
+    // caderno) para a IA só enxergar o conteúdo de estudo.
+    var raw = (global.Quiz && global.Quiz.cleanText) ? global.Quiz.cleanText(content) : (content || '');
+    var material = raw.slice(0, 30000);
 
     var system =
-      'Você é um examinador experiente de concursos públicos brasileiros. ' +
-      'Crie questões de alta qualidade baseadas EXCLUSIVAMENTE no material de ' +
-      'estudo fornecido. Não invente fatos fora do material. Escreva em ' +
-      'português do Brasil. Responda SOMENTE com JSON válido, sem nenhum texto fora do JSON.';
+      'Você é um examinador experiente do ENCCEJA e de provas brasileiras. ' +
+      'Elabore questões de MÚLTIPLA ESCOLHA de boa qualidade, no estilo do ENCCEJA, ' +
+      'sobre o TEMA do material de estudo fornecido (que lista os tópicos estudados ' +
+      'em texto e em vídeo). Use o material para saber QUAIS assuntos cobrar; pode ' +
+      'usar seu conhecimento geral desses assuntos para redigir enunciados e ' +
+      'alternativas corretas e verdadeiras, mas não fuja dos temas do material. ' +
+      'Cada questão deve ter UMA única alternativa correta e inequívoca. ' +
+      'Escreva em português do Brasil. Responda SOMENTE com JSON válido, sem nenhum texto fora do JSON.';
+
+    var dissPart = nDiss > 0
+      ? (' e ' + nDiss + ' questões DISSERTATIVAS')
+      : '';
+    var dissRule = nDiss > 0
+      ? ('- Dissertativa: pergunta que exija desenvolvimento; forneça uma resposta-modelo e os pontos-chave esperados.\n')
+      : '';
+    var dissSchema = nDiss > 0
+      ? (',{"type":"dissertativa","stem":"...","model_answer":"...","key_points":["...","..."]}')
+      : '';
 
     var user =
-      'Crie um simulado com ' + nMC + ' questões de MÚLTIPLA ESCOLHA e ' +
-      nDiss + ' questões DISSERTATIVAS sobre o material abaixo.\n\n' +
+      'Crie um simulado com ' + nMC + ' questões de MÚLTIPLA ESCOLHA' + dissPart +
+      ' sobre os temas do material abaixo.\n\n' +
       'Regras:\n' +
-      '- Múltipla escolha: enunciado claro no estilo de banca, 4 alternativas ' +
-      '(índices 0 a 3), apenas 1 correta, com distratores plausíveis baseados ' +
-      'no conteúdo. Inclua uma breve explicação da resposta correta.\n' +
-      '- Dissertativa: pergunta que exija desenvolvimento; forneça uma ' +
-      'resposta-modelo e os pontos-chave esperados.\n' +
-      '- Baseie tudo apenas no material. Dificuldade compatível com concurso.\n\n' +
-      'Formato de saída (JSON), exatamente nesta estrutura:\n' +
+      '- Cada questão de múltipla escolha tem um enunciado claro e 4 alternativas ' +
+      '(índices 0 a 3), com APENAS 1 correta e 3 distratores plausíveis e realmente errados.\n' +
+      '- As alternativas devem ser frases completas e naturais — NUNCA use links, ' +
+      'colchetes, títulos de vídeo ou códigos como alternativa.\n' +
+      '- Inclua uma explicação curta dizendo por que a correta está certa.\n' +
+      '- Varie os assuntos cobrados entre os tópicos do material.\n' +
+      dissRule +
+      '\nFormato de saída (JSON), exatamente nesta estrutura:\n' +
       '{"questions":[' +
-      '{"type":"mc","stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."},' +
-      '{"type":"dissertativa","stem":"...","model_answer":"...","key_points":["...","..."]}' +
+      '{"type":"mc","stem":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}' +
+      dissSchema +
       ']}\n\n' +
-      'MATERIAL:\n"""' + material + '"""';
+      'TEMAS/MATERIAL ESTUDADO:\n"""' + material + '"""';
 
     return callClaude({
       system: system,
