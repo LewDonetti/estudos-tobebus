@@ -14,7 +14,7 @@ window.COURSES = [
   "subtitle": "Banca Vunesp · Polícia Científica de SP",
   "emoji": "📷",
   "color": "#5b4fd6",
-  "cover": "<svg class='cc-cover' viewBox='0 0 400 120' preserveAspectRatio='xMidYMid slice' xmlns='http://www.w3.org/2000/svg'><g fill='none' stroke='#fff' stroke-width='3' opacity='0.5' stroke-linecap='round'><path d='M22 24 h22 M22 24 v22'/><path d='M378 24 h-22 M378 24 v22'/><path d='M22 96 h22 M22 96 v-22'/><path d='M378 96 h-22 M378 96 v-22'/></g><g transform='translate(200 60)'><circle r='40' fill='rgba(0,0,0,0.18)' stroke='#fff' stroke-width='3'/><circle r='29' fill='none' stroke='rgba(255,255,255,0.75)' stroke-width='2'/><circle r='17' fill='rgba(255,255,255,0.14)' stroke='rgba(255,255,255,0.55)' stroke-width='1.5'/><circle cx='-12' cy='-12' r='5' fill='rgba(255,255,255,0.9)'/></g></svg>",
+  "cover": "<img class='cc-cover' src='assets/covers/ftp-pcsp.webp' alt='Perícia Criminal' loading='lazy'><span class='cc-scrim'></span>",
   "subjects": [
    {
     "name": "Técnicas Audiovisuais",
