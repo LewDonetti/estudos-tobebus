@@ -225,11 +225,12 @@
       ? '<div class="progress-row"><div class="progress"><span style="width:' + Math.round(pr.done / pr.total * 100) + '%"></span></div>' +
         '<span class="progress-label">' + pr.done + '/' + pr.total + '</span></div>'
       : '<div class="cc-start" style="color:' + c.color + '">Começar →</div>';
+    var hero = c.cover || ('<span class="cc-emoji">' + c.emoji + '</span>');
     var card = el(
       '<div class="course-card">' +
         '<div class="cc-banner" style="background:' + grad + '">' +
           '<span class="cc-tag">CURSO</span>' +
-          '<span class="cc-emoji">' + c.emoji + '</span>' +
+          hero +
         '</div>' +
         '<div class="cc-body">' +
           '<h3>' + esc(c.title) + '</h3>' +
