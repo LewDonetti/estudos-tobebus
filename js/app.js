@@ -496,6 +496,7 @@
             '<button class="v-btn v-play" title="Play/Pause">▶</button>' +
             '<div class="v-time">0:00 / 0:00</div>' +
             '<div class="v-seek"><div class="v-seek-fill"></div></div>' +
+            '<button class="v-btn v-speed" title="Velocidade">1x</button>' +
             '<button class="v-btn v-fs" title="Tela cheia">⛶</button>' +
           '</div>' +
         '</div>');
@@ -607,6 +608,17 @@
     var seek = wrap.querySelector('.v-seek');
     var fill = wrap.querySelector('.v-seek-fill');
     var fsBtn = wrap.querySelector('.v-fs');
+    var speedBtn = wrap.querySelector('.v-speed');
+
+    var RATES = [1, 1.25, 1.5, 1.75, 2];
+    var rateIdx = 0;
+    if (speedBtn) speedBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      rateIdx = (rateIdx + 1) % RATES.length;
+      var r = RATES[rateIdx];
+      try { if (ytPlayer && ytPlayer.setPlaybackRate) ytPlayer.setPlaybackRate(r); } catch (err) {}
+      speedBtn.textContent = (r % 1 === 0 ? r : r.toString()) + 'x';
+    });
 
     function toggle() {
       if (!ytPlayer || !ytPlayer.getPlayerState) return;
